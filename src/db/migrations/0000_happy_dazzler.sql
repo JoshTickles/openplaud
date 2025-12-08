@@ -106,8 +106,8 @@ CREATE TABLE "transcriptions" (
 	"user_id" text NOT NULL,
 	"text" text NOT NULL,
 	"language" varchar(10),
-	"provider" varchar(100) NOT NULL,
-	"model" varchar(100) NOT NULL,
+	"provider" varchar(100) NOT NULL DEFAULT 'openai',
+	"model" varchar(100) NOT NULL DEFAULT 'whisper-1',
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
