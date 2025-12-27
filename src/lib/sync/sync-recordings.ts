@@ -1,4 +1,4 @@
-import { and, desc, eq, gt } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { plaudConnections, recordings, userSettings, users } from "@/db/schema";
 import { env } from "@/lib/env";
@@ -262,7 +262,6 @@ export async function syncRecordingsForUser(
             const plaudRecordings = recordingsResponse.data_file_list;
 
             if (plaudRecordings.length === 0) {
-                hasMore = false;
                 break;
             }
 
