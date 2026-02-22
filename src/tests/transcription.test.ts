@@ -19,15 +19,13 @@ vi.mock("@/lib/storage/factory", () => ({
 }));
 
 vi.mock("openai", () => {
-    const MockOpenAI = vi.fn(function () {
-        return {
-            audio: {
-                transcriptions: {
-                    create: vi.fn(),
-                },
+    const MockOpenAI = vi.fn(() => ({
+        audio: {
+            transcriptions: {
+                create: vi.fn(),
             },
-        };
-    });
+        },
+    }));
     return { OpenAI: MockOpenAI };
 });
 
@@ -132,11 +130,9 @@ describe("Transcription", () => {
             const mockCreate = vi
                 .fn()
                 .mockRejectedValue(new Error("API Error"));
-            (OpenAI as unknown as Mock).mockImplementation(function () {
-                return {
-                    audio: { transcriptions: { create: mockCreate } },
-                };
-            });
+            (OpenAI as unknown as Mock).mockImplementation(() => ({
+                audio: { transcriptions: { create: mockCreate } },
+            }));
 
             (db.select as Mock)
                 .mockReturnValueOnce({

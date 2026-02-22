@@ -355,7 +355,10 @@ export function OnboardingDialog({
                                                 </SelectContent>
                                             </Select>
                                             <p className="text-xs text-muted-foreground">
-                                                {PLAUD_SERVERS[server].description}
+                                                {
+                                                    PLAUD_SERVERS[server]
+                                                        .description
+                                                }
                                             </p>
                                         </div>
                                         <div className="space-y-2">

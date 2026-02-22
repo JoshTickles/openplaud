@@ -6,7 +6,8 @@ export const PLAUD_SERVERS = {
     },
     eu: {
         label: "EU – Frankfurt (api-euc1.plaud.ai)",
-        description: "EU server — used by European accounts (api-euc1.plaud.ai)",
+        description:
+            "EU server — used by European accounts (api-euc1.plaud.ai)",
         apiBase: "https://api-euc1.plaud.ai",
     },
 } as const;
