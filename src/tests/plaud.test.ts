@@ -38,7 +38,10 @@ describe("PlaudClient", () => {
         });
 
         it("should use custom apiBase when provided", () => {
-            const euClient = new PlaudClient(mockBearerToken, "https://api-euc1.plaud.ai");
+            const euClient = new PlaudClient(
+                mockBearerToken,
+                "https://api-euc1.plaud.ai",
+            );
             expect(euClient).toBeInstanceOf(PlaudClient);
         });
     });
@@ -78,10 +81,18 @@ describe("PlaudClient", () => {
         });
 
         it("should use custom apiBase for requests", async () => {
-            const euClient = new PlaudClient(mockBearerToken, "https://api-euc1.plaud.ai");
+            const euClient = new PlaudClient(
+                mockBearerToken,
+                "https://api-euc1.plaud.ai",
+            );
             mockFetch.mockResolvedValueOnce({
                 ok: true,
-                json: () => Promise.resolve({ status: 0, msg: "success", data_devices: [] }),
+                json: () =>
+                    Promise.resolve({
+                        status: 0,
+                        msg: "success",
+                        data_devices: [],
+                    }),
             });
 
             await euClient.listDevices();

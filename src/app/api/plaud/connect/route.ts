@@ -5,7 +5,11 @@ import { plaudConnections, plaudDevices } from "@/db/schema";
 import { auth } from "@/lib/auth";
 import { encrypt } from "@/lib/encryption";
 import { PlaudClient } from "@/lib/plaud/client";
-import { DEFAULT_SERVER_KEY, PLAUD_SERVERS, type PlaudServerKey } from "@/lib/plaud/servers";
+import {
+    DEFAULT_SERVER_KEY,
+    PLAUD_SERVERS,
+    type PlaudServerKey,
+} from "@/lib/plaud/servers";
 
 export async function POST(request: Request) {
     try {
@@ -61,7 +65,11 @@ export async function POST(request: Request) {
         if (existingConnection) {
             await db
                 .update(plaudConnections)
-                .set({ bearerToken: encryptedToken, apiBase, updatedAt: new Date() })
+                .set({
+                    bearerToken: encryptedToken,
+                    apiBase,
+                    updatedAt: new Date(),
+                })
                 .where(eq(plaudConnections.id, existingConnection.id));
         } else {
             await db.insert(plaudConnections).values({

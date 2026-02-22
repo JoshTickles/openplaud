@@ -15,7 +15,11 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { DEFAULT_SERVER_KEY, PLAUD_SERVERS, type PlaudServerKey } from "@/lib/plaud/servers";
+import {
+    DEFAULT_SERVER_KEY,
+    PLAUD_SERVERS,
+    type PlaudServerKey,
+} from "@/lib/plaud/servers";
 
 type Step = "plaud" | "complete";
 
@@ -97,12 +101,22 @@ export function OnboardingForm() {
 
                     <div className="space-y-2">
                         <Label htmlFor="apiBase">API Server</Label>
-                        <Select value={server} onValueChange={(v) => setServer(v as PlaudServerKey)}>
+                        <Select
+                            value={server}
+                            onValueChange={(v) =>
+                                setServer(v as PlaudServerKey)
+                            }
+                        >
                             <SelectTrigger id="apiBase" disabled={isLoading}>
                                 <SelectValue placeholder="Select API server" />
                             </SelectTrigger>
                             <SelectContent className="z-[200]">
-                                {(Object.entries(PLAUD_SERVERS) as [PlaudServerKey, typeof PLAUD_SERVERS[PlaudServerKey]][]).map(([key, s]) => (
+                                {(
+                                    Object.entries(PLAUD_SERVERS) as [
+                                        PlaudServerKey,
+                                        (typeof PLAUD_SERVERS)[PlaudServerKey],
+                                    ][]
+                                ).map(([key, s]) => (
                                     <SelectItem key={key} value={key}>
                                         {s.label}
                                     </SelectItem>

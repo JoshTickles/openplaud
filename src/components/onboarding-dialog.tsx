@@ -29,7 +29,11 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { DEFAULT_SERVER_KEY, PLAUD_SERVERS, type PlaudServerKey } from "@/lib/plaud/servers";
+import {
+    DEFAULT_SERVER_KEY,
+    PLAUD_SERVERS,
+    type PlaudServerKey,
+} from "@/lib/plaud/servers";
 
 type OnboardingStep = "welcome" | "plaud" | "ai-provider" | "complete";
 
@@ -302,7 +306,9 @@ export function OnboardingDialog({
                                             <Button
                                                 variant="outline"
                                                 size="sm"
-                                                onClick={() => setHasPlaudConnection(false)}
+                                                onClick={() =>
+                                                    setHasPlaudConnection(false)
+                                                }
                                             >
                                                 Reconnect
                                             </Button>
@@ -316,13 +322,33 @@ export function OnboardingDialog({
                                             <Label htmlFor="api-server">
                                                 API Server
                                             </Label>
-                                            <Select value={server} onValueChange={(v) => setServer(v as PlaudServerKey)}>
-                                                <SelectTrigger id="api-server" disabled={isLoading}>
+                                            <Select
+                                                value={server}
+                                                onValueChange={(v) =>
+                                                    setServer(
+                                                        v as PlaudServerKey,
+                                                    )
+                                                }
+                                            >
+                                                <SelectTrigger
+                                                    id="api-server"
+                                                    disabled={isLoading}
+                                                >
                                                     <SelectValue placeholder="Select API server" />
                                                 </SelectTrigger>
                                                 <SelectContent className="z-[200]">
-                                                    {(Object.entries(PLAUD_SERVERS) as [PlaudServerKey, typeof PLAUD_SERVERS[PlaudServerKey]][]).map(([key, s]) => (
-                                                        <SelectItem key={key} value={key}>
+                                                    {(
+                                                        Object.entries(
+                                                            PLAUD_SERVERS,
+                                                        ) as [
+                                                            PlaudServerKey,
+                                                            (typeof PLAUD_SERVERS)[PlaudServerKey],
+                                                        ][]
+                                                    ).map(([key, s]) => (
+                                                        <SelectItem
+                                                            key={key}
+                                                            value={key}
+                                                        >
                                                             {s.label}
                                                         </SelectItem>
                                                     ))}
@@ -351,7 +377,12 @@ export function OnboardingDialog({
                                                 disabled={isLoading}
                                             />
                                             <p className="text-xs text-muted-foreground">
-                                                Open plaud.ai in a browser, log in, open DevTools (F12) → Network tab, refresh and copy the Authorization header value from any request to the Plaud API server.
+                                                Open plaud.ai in a browser, log
+                                                in, open DevTools (F12) →
+                                                Network tab, refresh and copy
+                                                the Authorization header value
+                                                from any request to the Plaud
+                                                API server.
                                             </p>
                                         </div>
 
