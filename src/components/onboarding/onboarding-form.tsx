@@ -15,18 +15,14 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-
-const PLAUD_SERVERS = [
-    { label: "Global (api.plaud.ai)", value: "https://api.plaud.ai" },
-    { label: "EU – Frankfurt (api-euc1.plaud.ai)", value: "https://api-euc1.plaud.ai" },
-] as const;
+import { DEFAULT_SERVER_KEY, PLAUD_SERVERS, type PlaudServerKey } from "@/lib/plaud/servers";
 
 type Step = "plaud" | "complete";
 
 export function OnboardingForm() {
     const [step, setStep] = useState<Step>("plaud");
     const [bearerToken, setBearerToken] = useState("");
-    const [apiBase, setApiBase] = useState<string>(PLAUD_SERVERS[0].value);
+    const [server, setServer] = useState<PlaudServerKey>(DEFAULT_SERVER_KEY);
     const [isLoading, setIsLoading] = useState(false);
     const router = useRouter();
 
@@ -41,7 +37,7 @@ export function OnboardingForm() {
             const response = await fetch("/api/plaud/connect", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ bearerToken, apiBase }),
+                body: JSON.stringify({ bearerToken, server }),
             });
 
             if (!response.ok) throw new Error("Failed to connect");
@@ -101,20 +97,20 @@ export function OnboardingForm() {
 
                     <div className="space-y-2">
                         <Label htmlFor="apiBase">API Server</Label>
-                        <Select value={apiBase} onValueChange={setApiBase}>
+                        <Select value={server} onValueChange={(v) => setServer(v as PlaudServerKey)}>
                             <SelectTrigger id="apiBase" disabled={isLoading}>
                                 <SelectValue placeholder="Select API server" />
                             </SelectTrigger>
                             <SelectContent className="z-[200]">
-                                {PLAUD_SERVERS.map((server) => (
-                                    <SelectItem key={server.value} value={server.value}>
-                                        {server.label}
+                                {(Object.entries(PLAUD_SERVERS) as [PlaudServerKey, typeof PLAUD_SERVERS[PlaudServerKey]][]).map(([key, s]) => (
+                                    <SelectItem key={key} value={key}>
+                                        {s.label}
                                     </SelectItem>
                                 ))}
                             </SelectContent>
                         </Select>
                         <p className="text-xs text-muted-foreground">
-                            {apiBase === "https://api.plaud.ai"
+                            {server === "global"
                                 ? "Global server — used by most accounts (api.plaud.ai)"
                                 : "EU server — used by European accounts (api-euc1.plaud.ai)"}
                         </p>

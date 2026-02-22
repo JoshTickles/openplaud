@@ -4,7 +4,8 @@ import { db } from "@/db";
 import { plaudConnections, plaudDevices } from "@/db/schema";
 import { auth } from "@/lib/auth";
 import { encrypt } from "@/lib/encryption";
-import { DEFAULT_PLAUD_API_BASE, PlaudClient } from "@/lib/plaud/client";
+import { PlaudClient } from "@/lib/plaud/client";
+import { DEFAULT_SERVER_KEY, PLAUD_SERVERS, type PlaudServerKey } from "@/lib/plaud/servers";
 
 export async function POST(request: Request) {
     try {
@@ -19,7 +20,7 @@ export async function POST(request: Request) {
             );
         }
 
-        const { bearerToken, apiBase: rawApiBase } = await request.json();
+        const { bearerToken, server: serverKey } = await request.json();
 
         if (!bearerToken) {
             return NextResponse.json(
@@ -28,7 +29,15 @@ export async function POST(request: Request) {
             );
         }
 
-        const apiBase = rawApiBase ?? DEFAULT_PLAUD_API_BASE;
+        const resolvedKey = (serverKey ?? DEFAULT_SERVER_KEY) as string;
+        if (!(resolvedKey in PLAUD_SERVERS)) {
+            return NextResponse.json(
+                { error: `Unknown server: ${resolvedKey}` },
+                { status: 400 },
+            );
+        }
+
+        const apiBase = PLAUD_SERVERS[resolvedKey as PlaudServerKey].apiBase;
         const client = new PlaudClient(bearerToken, apiBase);
         const isValid = await client.testConnection();
 

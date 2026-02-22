@@ -9,6 +9,7 @@ import {
     vi,
 } from "vitest";
 import { DEFAULT_PLAUD_API_BASE, PlaudClient } from "../lib/plaud/client";
+import { DEFAULT_SERVER_KEY, PLAUD_SERVERS } from "../lib/plaud/servers";
 
 const originalFetch = global.fetch;
 let mockFetch: Mock;
@@ -202,6 +203,22 @@ describe("PlaudClient", () => {
 
             const result = await client.testConnection();
             expect(result).toBe(false);
+        });
+    });
+
+    describe("server key resolution", () => {
+        it("should resolve known server keys to API base URLs", () => {
+            expect(PLAUD_SERVERS.global.apiBase).toBe("https://api.plaud.ai");
+            expect(PLAUD_SERVERS.eu.apiBase).toBe("https://api-euc1.plaud.ai");
+        });
+
+        it("should have global as the default server key", () => {
+            expect(DEFAULT_SERVER_KEY).toBe("global");
+        });
+
+        it("should reject unknown server keys", () => {
+            const unknownKey = "evil";
+            expect(unknownKey in PLAUD_SERVERS).toBe(false);
         });
     });
 
