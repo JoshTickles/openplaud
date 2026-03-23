@@ -2,6 +2,7 @@
 
 import {
     Bell,
+    BookOpen,
     Bot,
     Download,
     FileText,
@@ -80,6 +81,7 @@ const settingsNav = [
     },
     { name: "Export/Backup", id: "export" as SettingsSection, icon: Download },
     { name: "Storage", id: "storage" as SettingsSection, icon: HardDrive },
+    { name: "Obsidian", id: "obsidian" as SettingsSection, icon: BookOpen },
 ];
 
 const STORAGE_KEY = "settings-last-section";
