@@ -4,6 +4,7 @@ import type { SettingsSection } from "@/types/settings";
 import { DisplaySection } from "./settings-sections/display-section";
 import { ExportSection } from "./settings-sections/export-section";
 import { NotificationsSection } from "./settings-sections/notifications-section";
+import { ObsidianSection } from "./settings-sections/obsidian-section";
 import { PlaybackSection } from "./settings-sections/playback-section";
 import { ProvidersSection } from "./settings-sections/providers-section";
 import { StorageSection } from "./settings-sections/storage-section";
@@ -48,6 +49,8 @@ export function SettingsContent({
             return <ExportSection onReRunOnboarding={onReRunOnboarding} />;
         case "storage":
             return <StorageSection />;
+        case "obsidian":
+            return <ObsidianSection />;
         default:
             return null;
     }

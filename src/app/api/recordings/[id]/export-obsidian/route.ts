@@ -30,11 +30,11 @@ export async function POST(
         const obsidianConfig = settings?.obsidianConfig as {
             enabled?: boolean;
             apiUrl?: string;
-            apiKey?: string;
+            encryptedApiKey?: string;
             vaultPath?: string;
         } | null;
 
-        if (!obsidianConfig?.enabled || !obsidianConfig.apiUrl || !obsidianConfig.apiKey || !obsidianConfig.vaultPath) {
+        if (!obsidianConfig?.enabled || !obsidianConfig.apiUrl || !obsidianConfig.encryptedApiKey || !obsidianConfig.vaultPath) {
             return NextResponse.json(
                 { error: "Obsidian integration not configured" },
                 { status: 400 },
@@ -70,7 +70,7 @@ export async function POST(
             .where(eq(aiEnhancements.recordingId, id))
             .limit(1);
 
-        const apiKey = decrypt(obsidianConfig.apiKey);
+        const apiKey = decrypt(obsidianConfig.encryptedApiKey);
         const client = new ObsidianClient({
             apiUrl: obsidianConfig.apiUrl,
             apiKey,

@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { RecordingWorkstation } from "@/components/recordings/recording-workstation";
 import { db } from "@/db";
-import { recordings, transcriptions } from "@/db/schema";
+import { aiEnhancements, recordings, transcriptions } from "@/db/schema";
 import { requireAuth } from "@/lib/auth-server";
 
 interface RecordingDetailPageProps {
@@ -29,12 +29,20 @@ export default async function RecordingDetailPage({
         notFound();
     }
 
-    // Fetch transcription if exists
-    const [transcription] = await db
-        .select()
-        .from(transcriptions)
-        .where(eq(transcriptions.recordingId, id))
-        .limit(1);
+    const [transcription, enhancement] = await Promise.all([
+        db
+            .select()
+            .from(transcriptions)
+            .where(eq(transcriptions.recordingId, id))
+            .limit(1)
+            .then((rows) => rows[0]),
+        db
+            .select()
+            .from(aiEnhancements)
+            .where(eq(aiEnhancements.recordingId, id))
+            .limit(1)
+            .then((rows) => rows[0]),
+    ]);
 
     return (
         <RecordingWorkstation
@@ -49,6 +57,15 @@ export default async function RecordingDetailPage({
                           detectedLanguage:
                               transcription.detectedLanguage || undefined,
                           transcriptionType: transcription.transcriptionType,
+                      }
+                    : undefined
+            }
+            enhancement={
+                enhancement
+                    ? {
+                          summary: enhancement.summary || undefined,
+                          actionItems: (enhancement.actionItems as string[]) || [],
+                          keyPoints: (enhancement.keyPoints as string[]) || [],
                       }
                     : undefined
             }
