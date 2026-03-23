@@ -1,5 +1,7 @@
 # Changelog
 
+- [Added]: Obsidian settings UI section (API URL, key, vault path, auto-export, test connection), recording workstation enhanced with inline rename/enhance panel/Obsidian export, DB migration 0011, docker-compose updated to build from fork source, unit tests for audio format detection and provider factory (josh, 2026-03-23)
+
 - [Added]: Recording rename API route (`PATCH /api/recordings/[id]/rename`) with Plaud cloud sync-back support (josh, 2026-03-24)
 - [Added]: Obsidian integration library (`src/lib/obsidian/`) with REST API client and Markdown formatter including YAML frontmatter generation (josh, 2026-03-24)
 - [Added]: Obsidian export API route (`POST /api/recordings/[id]/export-obsidian`) to push transcriptions as formatted notes to Obsidian vaults (josh, 2026-03-24)
