@@ -94,37 +94,46 @@ git merge upstream/main
 - **Schema**: Added `obsidianConfig` JSONB column to `user_settings`
   - Structure: `{ enabled, apiUrl, apiKey (encrypted), vaultPath, autoExport }`
 
-### 🔲 Pending
+### ✅ Completed (Session 2 — 2026-03-23)
 
 #### 7. Database Migration
-- The `obsidian_config` column needs a Drizzle migration generated and applied
-- Command: `cd ~/home/openplaud && bun run db:generate && bun run db:migrate`
-- **Blocked by**: Need to verify build compiles cleanly first
+- `src/db/migrations/0011_obsidian_config.sql` — adds `obsidian_config jsonb` to `user_settings`
+- **Apply to local Docker stack**: `docker exec openplaud-db psql -U postgres openplaud -c "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS obsidian_config jsonb;"`
 
 #### 8. Settings UI Updates
-- [ ] APAC option in the Plaud connection server selector dropdown
-- [ ] Obsidian section in settings page (API URL, API key, vault path, auto-export toggle, test connection button)
-- [ ] AI Enhancement "Enhance" button + panel in recording detail view
-- [ ] Rename button / inline edit in recording detail view
-- **Files to edit**:
-  - `src/app/settings/page.tsx` or `src/components/settings/settings-page-content.tsx`
-  - `src/app/recordings/[id]/page.tsx` (if it exists) or the workstation component
-  - `src/components/dashboard/workstation.tsx`
+- ✅ Obsidian section in settings dialog (API URL, API key, vault path, auto-export, test connection)
+- ✅ AI Enhancement panel in recording detail (Enhance button, summary/key points/action items)
+- ✅ Inline rename in recording detail header (pencil icon, Enter/Escape, syncs to Plaud cloud)
+- ✅ Obsidian export button in enhancement panel
 
 #### 9. Docker Compose Update
-- Update `~/home/docker-personal/openplaud/docker-compose.yml`
-- Replace `ghcr.io/openplaud/openplaud:latest` with a local build from `~/home/openplaud`
-- Remove standalone `exporter` service once Obsidian export is built into the app
-- Need to add `build: context: ../../openplaud` or similar
+- ✅ `~/home/docker-personal/openplaud/docker-compose.yml` updated
+- Builds from `~/home/openplaud` using local fork source (`openplaud-fork:local` image)
+- Removed standalone `exporter` service (Obsidian export now built into the app)
 
 #### 10. Tests
-- Unit tests for `detectAudioFormat()` with fixture buffers
-- Unit tests for provider factory (`inferProviderType`)
-- Integration test: Azure Whisper via LiteLLM (already manually verified ✅)
-- Integration test: enhancement endpoint with LiteLLM chat
+- ✅ `src/tests/audio-format.test.ts` — detectAudioFormat magic bytes (7 tests)
+- ✅ `src/tests/provider-factory.test.ts` — createTranscriptionProvider + inferProviderType (8 tests)
+- ✅ Fixed pre-existing transcription.test.ts mock to work with new provider class pattern
 
 #### 11. Build Verification
-- **Last attempted**: `bun run build` — was interrupted by session issue
+- ✅ `bun run build` passes cleanly — 28 routes including all new endpoints
+- ✅ All 60 tests pass (`bun run test`)
+
+### 🔲 Remaining
+
+#### 12. Apply DB Migration to Running Stack
+```bash
+docker exec openplaud-db psql -U postgres openplaud -c \
+  "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS obsidian_config jsonb;"
+```
+
+#### 13. Rebuild Local Docker Stack from Fork
+```bash
+cd ~/home/docker-personal/openplaud
+docker compose build
+docker compose up -d
+```
 - **TODO**: Run `bun run build` and fix any TypeScript errors before merging
 
 ---
