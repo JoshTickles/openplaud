@@ -6,7 +6,7 @@ describe("detectAudioFormat", () => {
         const buffer = Buffer.from([0x4f, 0x67, 0x67, 0x53, 0x00, 0x00]);
         const result = detectAudioFormat(buffer);
         expect(result.contentType).toBe("audio/ogg");
-        expect(result.extension).toBe(".opus");
+        expect(result.extension).toBe(".ogg");
     });
 
     it("detects MP3 ID3 magic bytes", () => {
