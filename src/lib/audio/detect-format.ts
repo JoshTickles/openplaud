@@ -12,8 +12,9 @@ export function detectAudioFormat(buffer: Buffer | Uint8Array): AudioFormatInfo 
     const bytes = buffer instanceof Buffer ? buffer : Buffer.from(buffer);
 
     // OGG/Opus: starts with "OggS" (0x4F 0x67 0x67 0x53)
+    // Use .ogg extension — Azure and most APIs accept ogg but not opus as an extension
     if (bytes.length >= 4 && bytes[0] === 0x4F && bytes[1] === 0x67 && bytes[2] === 0x67 && bytes[3] === 0x53) {
-        return { contentType: "audio/ogg", extension: ".opus" };
+        return { contentType: "audio/ogg", extension: ".ogg" };
     }
 
     // MP3: starts with ID3 tag (0x49 0x44 0x33) or MPEG sync word (0xFF 0xFB/0xFF 0xFA/0xFF 0xF3/0xFF 0xF2)
