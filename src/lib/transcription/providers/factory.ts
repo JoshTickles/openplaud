@@ -1,0 +1,43 @@
+import type { TranscriptionProvider, ProviderType } from "./types";
+import { OpenAITranscriptionProvider } from "./openai-provider";
+import { AzureTranscriptionProvider } from "./azure-provider";
+import { LiteLLMTranscriptionProvider } from "./litellm-provider";
+
+export function createTranscriptionProvider(
+    providerType: ProviderType,
+    apiKey: string,
+    baseURL?: string,
+): TranscriptionProvider {
+    switch (providerType) {
+        case "azure":
+            if (!baseURL) throw new Error("Azure provider requires a base URL");
+            return new AzureTranscriptionProvider(apiKey, baseURL);
+        case "litellm":
+            if (!baseURL)
+                throw new Error("LiteLLM provider requires a base URL");
+            return new LiteLLMTranscriptionProvider(apiKey, baseURL);
+        case "local":
+            if (!baseURL)
+                throw new Error("Local provider requires a base URL");
+            return new OpenAITranscriptionProvider(apiKey, baseURL);
+        case "openai":
+        default:
+            return new OpenAITranscriptionProvider(apiKey, baseURL);
+    }
+}
+
+/**
+ * Infer provider type from provider name and base URL.
+ * Used for backward compatibility with existing api_credentials rows
+ * that don't have an explicit provider_type column yet.
+ */
+export function inferProviderType(
+    provider: string,
+    baseUrl?: string | null,
+): ProviderType {
+    const p = provider.toLowerCase();
+    if (p.includes("azure")) return "azure";
+    if (p.includes("litellm")) return "litellm";
+    if (baseUrl && !baseUrl.includes("api.openai.com")) return "local";
+    return "openai";
+}

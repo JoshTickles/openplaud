@@ -323,6 +323,8 @@ export const userSettings = pgTable("user_settings", {
     syncTitleToPlaud: boolean("sync_title_to_plaud").notNull().default(false),
     // Title generation prompt configuration
     titleGenerationPrompt: jsonb("title_generation_prompt"), // { preset: string, customPrompt?: string }
+    // Obsidian integration config (encrypted apiKey stored inside)
+    obsidianConfig: jsonb("obsidian_config"), // { enabled, apiUrl, apiKey (encrypted), vaultPath, autoExport }
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
