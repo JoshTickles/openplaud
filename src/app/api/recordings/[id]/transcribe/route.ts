@@ -1,11 +1,9 @@
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { OpenAI } from "openai";
 import { db } from "@/db";
-import { apiCredentials, recordings, transcriptions } from "@/db/schema";
+import { recordings, transcriptions } from "@/db/schema";
 import { auth } from "@/lib/auth";
-import { decrypt } from "@/lib/encryption";
-import { createUserStorageProvider } from "@/lib/storage/factory";
+import { transcribeRecording } from "@/lib/transcription/transcribe-recording";
 
 export async function POST(
     request: Request,
@@ -43,107 +41,34 @@ export async function POST(
             );
         }
 
-        // Get user's transcription API credentials
-        const [credentials] = await db
-            .select()
-            .from(apiCredentials)
-            .where(
-                and(
-                    eq(apiCredentials.userId, session.user.id),
-                    eq(apiCredentials.isDefaultTranscription, true),
-                ),
-            )
-            .limit(1);
-
-        if (!credentials) {
-            return NextResponse.json(
-                { error: "No transcription API configured" },
-                { status: 400 },
-            );
+        const result = await transcribeRecording(session.user.id, id);
+        if (!result.success) {
+            const errorMessage = result.error || "Transcription failed";
+            const status =
+                errorMessage === "Recording not found"
+                    ? 404
+                    : errorMessage === "No transcription API configured"
+                      ? 400
+                      : 500;
+            return NextResponse.json({ error: errorMessage }, { status });
         }
 
-        // Decrypt API key
-        const apiKey = decrypt(credentials.apiKey);
-
-        // Create OpenAI client (works with all OpenAI-compatible APIs)
-        const openai = new OpenAI({
-            apiKey,
-            baseURL: credentials.baseUrl || undefined,
-        });
-
-        // Get storage provider and download audio
-        const storage = await createUserStorageProvider(session.user.id);
-        const audioBuffer = await storage.downloadFile(recording.storagePath);
-
-        // Create a File object for the transcription API
-        // Determine content type from storage path
-        const contentType = recording.storagePath.endsWith(".mp3")
-            ? "audio/mpeg"
-            : "audio/opus";
-        const audioFile = new File(
-            [new Uint8Array(audioBuffer)],
-            recording.filename,
-            {
-                type: contentType,
-            },
-        );
-
-        // Transcribe with verbose JSON to get language detection
-        const transcription = await openai.audio.transcriptions.create({
-            file: audioFile,
-            model: credentials.defaultModel || "whisper-1",
-            response_format: "verbose_json",
-        });
-
-        type VerboseTranscription = {
-            text: string;
-            language?: string | null;
-        };
-
-        // Extract text and detected language from response
-        const transcriptionText =
-            typeof transcription === "string"
-                ? transcription
-                : (transcription as VerboseTranscription).text;
-
-        const detectedLanguage =
-            typeof transcription === "string"
-                ? null
-                : (transcription as VerboseTranscription).language || null;
-
-        // Save transcription
-        const [existingTranscription] = await db
+        const [savedTranscription] = await db
             .select()
             .from(transcriptions)
             .where(eq(transcriptions.recordingId, id))
             .limit(1);
 
-        if (existingTranscription) {
-            await db
-                .update(transcriptions)
-                .set({
-                    text: transcriptionText,
-                    detectedLanguage,
-                    transcriptionType: "server",
-                    provider: credentials.provider,
-                    model: credentials.defaultModel || "whisper-1",
-                })
-                .where(eq(transcriptions.id, existingTranscription.id));
-        } else {
-            await db.insert(transcriptions).values({
-                recordingId: id,
-                userId: session.user.id,
-                text: transcriptionText,
-                detectedLanguage,
-                transcriptionType: "server",
-                provider: credentials.provider,
-                model: credentials.defaultModel || "whisper-1",
-            });
+        if (!savedTranscription) {
+            return NextResponse.json(
+                { error: "Transcription completed but no result was saved" },
+                { status: 500 },
+            );
         }
 
         return NextResponse.json({
-            transcription: transcriptionText,
-            detectedLanguage,
+            transcription: savedTranscription.text,
+            detectedLanguage: savedTranscription.detectedLanguage ?? null,
         });
     } catch (error) {
         console.error("Error transcribing:", error);

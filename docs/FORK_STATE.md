@@ -122,19 +122,20 @@ git merge upstream/main
 
 ### 🔲 Remaining
 
-#### 12. Apply DB Migration to Running Stack
-```bash
-docker exec openplaud-db psql -U postgres openplaud -c \
-  "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS obsidian_config jsonb;"
-```
+#### 12. Commit + Push Current Local Changes
+- Route fix for `/api/recordings/[id]/transcribe` now uses provider abstraction (`transcribeRecording`)
+- New local upload helper for OpenAI-compatible transcription providers (`src/lib/transcription/providers/upload.ts`)
+- Speaker diarization settings + migration (`speaker_diarization`, `diarization_speakers`)
+- Changelog updates
 
-#### 13. Rebuild Local Docker Stack from Fork
-```bash
-cd ~/home/docker-personal/openplaud
-docker compose build
-docker compose up -d
-```
-- **TODO**: Run `bun run build` and fix any TypeScript errors before merging
+#### 13. Planned Feature — Google Speech Diarization
+- Add a new transcription provider for Google Speech-to-Text diarization output
+- Keep current LiteLLM/Azure path as fallback for plain transcription
+- Store speaker-labeled transcript text in existing `transcriptions.text` format
+- Use Gemini optionally for post-processing/cleanup only (not primary diarization source)
+- Required config:
+  - `GOOGLE_APPLICATION_CREDENTIALS` (service account JSON path), or equivalent secure credential injection
+  - Speech-to-Text API enabled in GCP project
 
 ---
 

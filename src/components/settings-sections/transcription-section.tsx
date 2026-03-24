@@ -54,6 +54,8 @@ export function TranscriptionSection() {
         useState<string | null>(null);
     const [transcriptionQuality, setTranscriptionQuality] =
         useState("balanced");
+    const [speakerDiarization, setSpeakerDiarization] = useState(false);
+    const [diarizationSpeakers, setDiarizationSpeakers] = useState("2");
     const [autoGenerateTitle, setAutoGenerateTitle] = useState(true);
     const [syncTitleToPlaud, setSyncTitleToPlaud] = useState(false);
     const pendingChangesRef = useRef<Map<string, unknown>>(new Map());
@@ -70,6 +72,10 @@ export function TranscriptionSection() {
                     );
                     setTranscriptionQuality(
                         data.transcriptionQuality ?? "balanced",
+                    );
+                    setSpeakerDiarization(data.speakerDiarization ?? false);
+                    setDiarizationSpeakers(
+                        String(data.diarizationSpeakers ?? 2),
                     );
                     setAutoGenerateTitle(data.autoGenerateTitle ?? true);
                     setSyncTitleToPlaud(data.syncTitleToPlaud ?? false);
@@ -112,6 +118,8 @@ export function TranscriptionSection() {
         transcriptionQuality?: string;
         autoGenerateTitle?: boolean;
         syncTitleToPlaud?: boolean;
+        speakerDiarization?: boolean;
+        diarizationSpeakers?: number | null;
     }) => {
         if (updates.defaultTranscriptionLanguage !== undefined) {
             const previous = defaultTranscriptionLanguage;
@@ -138,6 +146,20 @@ export function TranscriptionSection() {
             setSyncTitleToPlaud(updates.syncTitleToPlaud);
             pendingChangesRef.current.set("syncTitleToPlaud", previous);
         }
+        if (updates.speakerDiarization !== undefined) {
+            const previous = speakerDiarization;
+            setSpeakerDiarization(updates.speakerDiarization);
+            pendingChangesRef.current.set("speakerDiarization", previous);
+        }
+        if (updates.diarizationSpeakers !== undefined) {
+            const previous = diarizationSpeakers;
+            setDiarizationSpeakers(
+                updates.diarizationSpeakers
+                    ? String(updates.diarizationSpeakers)
+                    : "2",
+            );
+            pendingChangesRef.current.set("diarizationSpeakers", previous);
+        }
 
         try {
             const response = await fetch("/api/settings/user", {
@@ -163,6 +185,12 @@ export function TranscriptionSection() {
             }
             if (updates.syncTitleToPlaud !== undefined) {
                 pendingChangesRef.current.delete("syncTitleToPlaud");
+            }
+            if (updates.speakerDiarization !== undefined) {
+                pendingChangesRef.current.delete("speakerDiarization");
+            }
+            if (updates.diarizationSpeakers !== undefined) {
+                pendingChangesRef.current.delete("diarizationSpeakers");
             }
         } catch {
             if (updates.defaultTranscriptionLanguage !== undefined) {
@@ -202,6 +230,24 @@ export function TranscriptionSection() {
                 if (previous !== undefined && typeof previous === "boolean") {
                     setSyncTitleToPlaud(previous);
                     pendingChangesRef.current.delete("syncTitleToPlaud");
+                }
+            }
+            if (updates.speakerDiarization !== undefined) {
+                const previous = pendingChangesRef.current.get(
+                    "speakerDiarization",
+                );
+                if (previous !== undefined && typeof previous === "boolean") {
+                    setSpeakerDiarization(previous);
+                    pendingChangesRef.current.delete("speakerDiarization");
+                }
+            }
+            if (updates.diarizationSpeakers !== undefined) {
+                const previous = pendingChangesRef.current.get(
+                    "diarizationSpeakers",
+                );
+                if (previous !== undefined && typeof previous === "string") {
+                    setDiarizationSpeakers(previous);
+                    pendingChangesRef.current.delete("diarizationSpeakers");
                 }
             }
             toast.error("Failed to save settings. Changes reverted.");
@@ -329,6 +375,56 @@ export function TranscriptionSection() {
                         Balance between transcription speed and accuracy
                     </p>
                 </div>
+
+                <div className="flex items-center justify-between">
+                    <div className="space-y-0.5 flex-1">
+                        <Label htmlFor="speaker-diarization" className="text-base">
+                            Speaker detection (diarization)
+                        </Label>
+                        <p className="text-sm text-muted-foreground">
+                            Label transcript segments by speaker when supported by
+                            your transcription provider/model
+                        </p>
+                    </div>
+                    <Switch
+                        id="speaker-diarization"
+                        checked={speakerDiarization}
+                        onCheckedChange={(checked) => {
+                            setSpeakerDiarization(checked);
+                            handleTranscriptionSettingChange({
+                                speakerDiarization: checked,
+                            });
+                        }}
+                        disabled={isSavingSettings}
+                    />
+                </div>
+
+                {speakerDiarization && (
+                    <div className="space-y-2 pl-4 border-l-2 border-primary/20">
+                        <Label htmlFor="diarization-speakers">
+                            Expected speakers
+                        </Label>
+                        <Select
+                            value={diarizationSpeakers}
+                            onValueChange={(value) => {
+                                setDiarizationSpeakers(value);
+                                handleTranscriptionSettingChange({
+                                    diarizationSpeakers: parseInt(value, 10),
+                                });
+                            }}
+                            disabled={isSavingSettings}
+                        >
+                            <SelectTrigger id="diarization-speakers" className="w-full">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="2">2 speakers</SelectItem>
+                                <SelectItem value="3">3 speakers</SelectItem>
+                                <SelectItem value="4">4 speakers</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                )}
 
                 <div className="flex items-center justify-between">
                     <div className="space-y-0.5 flex-1">

@@ -70,6 +70,7 @@ export async function transcribeRecording(
         const defaultLanguage =
             settings?.defaultTranscriptionLanguage || undefined;
         const quality = settings?.transcriptionQuality || "balanced";
+        const speakerDiarization = settings?.speakerDiarization ?? false;
         const autoGenerateTitle = settings?.autoGenerateTitle ?? true;
         const syncTitleToPlaud = settings?.syncTitleToPlaud ?? false;
 
@@ -94,7 +95,13 @@ export async function transcribeRecording(
         const result = await provider.transcribe(
             audioBuffer,
             recording.filename,
-            { language: defaultLanguage, model },
+            {
+                language: defaultLanguage,
+                model,
+                responseFormat: speakerDiarization
+                    ? "diarized_json"
+                    : "verbose_json",
+            },
         );
 
         const transcriptionText = result.text;

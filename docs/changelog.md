@@ -1,5 +1,9 @@
 # Changelog
 
+- [Changed]: Updated fork state tracking with current remaining work and planned Google Speech diarization feature scope/config requirements (josh, 2026-03-24)
+- [Added]: Local speaker diarization toggle and speaker-count settings wired into transcription flow with `diarized_json` request mode and automatic fallback to `verbose_json` when provider support is unavailable (josh, 2026-03-24)
+- [Fixed]: Refactored `/api/recordings/[id]/transcribe` to use the provider abstraction path, enabling successful Azure Whisper transcription via LiteLLM for Plaud audio (josh, 2026-03-24)
+
 - [Added]: Obsidian settings UI section (API URL, key, vault path, auto-export, test connection), recording workstation enhanced with inline rename/enhance panel/Obsidian export, DB migration 0011, docker-compose updated to build from fork source, unit tests for audio format detection and provider factory (josh, 2026-03-23)
 
 - [Added]: Recording rename API route (`PATCH /api/recordings/[id]/rename`) with Plaud cloud sync-back support (josh, 2026-03-24)

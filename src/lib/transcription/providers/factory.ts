@@ -19,7 +19,9 @@ export function createTranscriptionProvider(
         case "local":
             if (!baseURL)
                 throw new Error("Local provider requires a base URL");
-            return new OpenAITranscriptionProvider(apiKey, baseURL);
+            // Use fetch/FormData-based path for local OpenAI-compatible services
+            // to keep behavior consistent with LiteLLM and support diarization fallback.
+            return new LiteLLMTranscriptionProvider(apiKey, baseURL);
         case "openai":
         default:
             return new OpenAITranscriptionProvider(apiKey, baseURL);
