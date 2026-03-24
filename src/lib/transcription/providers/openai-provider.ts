@@ -35,10 +35,17 @@ export class OpenAITranscriptionProvider implements TranscriptionProvider {
         const { model, language } = options;
 
         const isDiarize =
-            model.includes("diarize") || model.includes("diarized");
+            options.responseFormat === "diarized_json" ||
+            model.includes("diarize") ||
+            model.includes("diarized");
         const isGpt4o = model.startsWith("gpt-4o");
 
-        const responseFormat = isDiarize
+        const responseFormat = options.responseFormat
+            ? (options.responseFormat as
+                  | "diarized_json"
+                  | "json"
+                  | "verbose_json")
+            : isDiarize
             ? ("diarized_json" as const)
             : isGpt4o
               ? ("json" as const)

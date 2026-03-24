@@ -283,6 +283,10 @@ export const userSettings = pgTable("user_settings", {
     transcriptionQuality: varchar("transcription_quality", { length: 20 })
         .notNull()
         .default("balanced"), // 'fast', 'balanced', 'accurate'
+    speakerDiarization: boolean("speaker_diarization")
+        .notNull()
+        .default(false),
+    diarizationSpeakers: integer("diarization_speakers"),
     // Display/UI settings
     dateTimeFormat: varchar("date_time_format", { length: 20 })
         .notNull()
