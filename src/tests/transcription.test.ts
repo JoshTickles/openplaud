@@ -28,7 +28,10 @@ vi.mock("openai", () => {
             },
         });
     });
-    return { OpenAI: MockOpenAI };
+    const toFile = vi.fn(async (buffer: unknown, name: string, opts: unknown) =>
+        new File([buffer as BlobPart], name, opts as FilePropertyBag),
+    );
+    return { OpenAI: MockOpenAI, toFile };
 });
 
 import { OpenAI } from "openai";

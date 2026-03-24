@@ -1,4 +1,4 @@
-import { OpenAI } from "openai";
+import { OpenAI, toFile } from "openai";
 import type { TranscriptionVerbose } from "openai/resources/audio/transcriptions";
 import { detectAudioFormat } from "@/lib/audio/detect-format";
 import type {
@@ -22,8 +22,8 @@ export class AzureTranscriptionProvider implements TranscriptionProvider {
         const format = detectAudioFormat(audioBuffer);
 
         const baseName = filename.replace(/\.[^.]+$/, "");
-        const audioFile = new File(
-            [new Uint8Array(audioBuffer)],
+        const audioFile = await toFile(
+            audioBuffer,
             `${baseName}${format.extension}`,
             { type: format.contentType },
         );
