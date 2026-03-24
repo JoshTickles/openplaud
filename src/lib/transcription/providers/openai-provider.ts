@@ -1,4 +1,4 @@
-import { OpenAI } from "openai";
+import { OpenAI, toFile } from "openai";
 import type {
     TranscriptionDiarized,
     TranscriptionVerbose,
@@ -25,8 +25,9 @@ export class OpenAITranscriptionProvider implements TranscriptionProvider {
         const format = detectAudioFormat(audioBuffer);
 
         const baseName = filename.replace(/\.[^.]+$/, "");
-        const audioFile = new File(
-            [new Uint8Array(audioBuffer)],
+        // Use OpenAI's toFile() for reliable cross-runtime serialization (Bun, Node, Edge)
+        const audioFile = await toFile(
+            audioBuffer,
             `${baseName}${format.extension}`,
             { type: format.contentType },
         );
