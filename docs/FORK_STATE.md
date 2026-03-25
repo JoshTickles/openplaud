@@ -33,15 +33,14 @@ git merge upstream/main
 |---------|----------|-------|
 | **Local OpenPlaud** (Docker) | `localhost:3000` | `~/home/docker-personal/openplaud/` |
 | **Local Speaches/Whisper** | `localhost:8300` | `ghcr.io/speaches-ai/speaches:latest-cpu` |
-| **LiteLLM proxy** | `http://REDACTED_INTERNAL_IP` | K8s cluster |
-| **Azure Whisper** | `REDACTED_AZURE_ENDPOINT` | Deployment: `whisper`, api-version: `2024-06-01` |
-| **K8s cluster** | kubeconfig: `~/home/home-k8s/kubeconfig.yaml` | RKE2, 3 nodes |
+| **LiteLLM proxy** | See `.env` | K8s cluster, OpenAI-compatible proxy |
+| **Azure Whisper** | See `.env` | Via LiteLLM or direct |
+| **K8s cluster** | See local kubeconfig | RKE2 |
 | **Obsidian REST API** | `host.docker.internal:27123` | From container; `127.0.0.1:27123` from host |
 
-### LiteLLM Model Routing (as of 2026-03-23)
-- `whisper-1` → Azure Whisper on `straker-ai-eu-product-02` ✅ tested
-- `whisper-local` → speaches/faster-whisper-base on Mac `REDACTED_INTERNAL_IP:8300`
-- `azure/openai-gpt-lb` → load-balanced GPT-5.2 across EU/US Azure deployments ✅ tested
+### LiteLLM Model Routing
+- `whisper-1` → Azure Whisper
+- `azure/openai-gpt-lb` → Load-balanced GPT across Azure deployments
 - `gemini-3-flash-lb` → Gemini 3 Flash
 
 ---
@@ -156,7 +155,7 @@ git merge upstream/main
 
 #### Azure Whisper via LiteLLM (recommended)
 - Provider name: `litellm`
-- Base URL: `http://REDACTED_INTERNAL_IP/v1`
+- Base URL: your LiteLLM proxy URL + `/v1`
 - Model: `whisper-1`
 
 #### Google / Gemini (diarization — preferred)

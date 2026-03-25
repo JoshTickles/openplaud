@@ -76,7 +76,10 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
     private readonly location: string;
 
     constructor(_apiKey: string, _baseURL?: string) {
-        this.projectId = process.env.GOOGLE_PROJECT_ID || "REDACTED_PROJECT_ID";
+        this.projectId = process.env.GOOGLE_PROJECT_ID || "";
+        if (!this.projectId) {
+            throw new Error("GOOGLE_PROJECT_ID environment variable is required for Gemini provider");
+        }
         this.location = process.env.GOOGLE_LOCATION || "us-central1";
     }
 
