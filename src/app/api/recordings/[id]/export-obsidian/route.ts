@@ -1,7 +1,14 @@
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { aiEnhancements, recordings, transcriptions, userSettings } from "@/db/schema";
+import {
+    aiEnhancements,
+    recordings,
+    recordingTagAssignments,
+    recordingTags,
+    transcriptions,
+    userSettings,
+} from "@/db/schema";
 import { auth } from "@/lib/auth";
 import { decrypt } from "@/lib/encryption";
 import { ObsidianClient, formatTranscriptMarkdown, generateVaultPath } from "@/lib/obsidian";
@@ -36,7 +43,7 @@ export async function POST(
 
         if (!obsidianConfig?.enabled || !obsidianConfig.apiUrl || !obsidianConfig.encryptedApiKey || !obsidianConfig.vaultPath) {
             return NextResponse.json(
-                { error: "Obsidian integration not configured" },
+                { error: "Obsidian integration not configured. Go to Settings → Obsidian to set it up." },
                 { status: 400 },
             );
         }
@@ -70,6 +77,14 @@ export async function POST(
             .where(eq(aiEnhancements.recordingId, id))
             .limit(1);
 
+        const tagRows = await db
+            .select({ name: recordingTags.name })
+            .from(recordingTagAssignments)
+            .innerJoin(recordingTags, eq(recordingTagAssignments.tagId, recordingTags.id))
+            .where(eq(recordingTagAssignments.recordingId, id));
+
+        const tagNames = tagRows.map((r) => r.name);
+
         const apiKey = decrypt(obsidianConfig.encryptedApiKey);
         const client = new ObsidianClient({
             apiUrl: obsidianConfig.apiUrl,
@@ -84,7 +99,11 @@ export async function POST(
             recordingId: recording.id,
             provider: transcription.provider,
             model: transcription.model,
+            speakerMap: transcription.speakerMap,
+            tags: tagNames,
             summary: enhancement?.summary,
+            actionItems: enhancement?.actionItems as string[] | null,
+            keyPoints: enhancement?.keyPoints as string[] | null,
         });
 
         const vaultPath = generateVaultPath(
@@ -97,7 +116,7 @@ export async function POST(
 
         if (!result.success) {
             return NextResponse.json(
-                { error: result.error || "Failed to export to Obsidian" },
+                { error: result.error || "Failed to push to Obsidian" },
                 { status: 502 },
             );
         }
@@ -107,9 +126,9 @@ export async function POST(
             vaultPath,
         });
     } catch (error) {
-        console.error("Error exporting to Obsidian:", error);
+        console.error("Error pushing to Obsidian:", error);
         return NextResponse.json(
-            { error: "Failed to export to Obsidian" },
+            { error: "Failed to push to Obsidian" },
             { status: 500 },
         );
     }

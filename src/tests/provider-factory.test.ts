@@ -58,6 +58,12 @@ describe("createTranscriptionProvider", () => {
         expect(typeof provider.transcribe).toBe("function");
     });
 
+    it("creates a Google Speech provider", () => {
+        const provider = createTranscriptionProvider("google", "api-key");
+        expect(provider).toBeDefined();
+        expect(typeof provider.transcribe).toBe("function");
+    });
+
     it("falls back to OpenAI for unknown provider types", () => {
         // The default case returns OpenAI provider
         const provider = createTranscriptionProvider(
@@ -73,6 +79,11 @@ describe("inferProviderType", () => {
     it("infers azure from provider name", () => {
         expect(inferProviderType("azure")).toBe("azure");
         expect(inferProviderType("Azure OpenAI")).toBe("azure");
+    });
+
+    it("infers google from provider name", () => {
+        expect(inferProviderType("google speech")).toBe("google");
+        expect(inferProviderType("Google")).toBe("google");
     });
 
     it("infers litellm from provider name", () => {

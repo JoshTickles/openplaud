@@ -9,6 +9,7 @@ import { PlaybackSection } from "./settings-sections/playback-section";
 import { ProvidersSection } from "./settings-sections/providers-section";
 import { StorageSection } from "./settings-sections/storage-section";
 import { SyncSection } from "./settings-sections/sync-section";
+import { TagsSection } from "./settings-sections/tags-section";
 import { TranscriptionSection } from "./settings-sections/transcription-section";
 
 interface Provider {
@@ -24,12 +25,16 @@ interface Provider {
 interface SettingsContentProps {
     activeSection: SettingsSection;
     initialProviders?: Provider[];
+    tags?: Array<{ id: string; name: string; color: string }>;
+    onTagsChanged?: () => void;
     onReRunOnboarding?: () => void;
 }
 
 export function SettingsContent({
     activeSection,
     initialProviders = [],
+    tags = [],
+    onTagsChanged,
     onReRunOnboarding,
 }: SettingsContentProps) {
     switch (activeSection) {
@@ -51,6 +56,8 @@ export function SettingsContent({
             return <StorageSection />;
         case "obsidian":
             return <ObsidianSection />;
+        case "tags":
+            return <TagsSection tags={tags} onTagsChanged={onTagsChanged} />;
         default:
             return null;
     }

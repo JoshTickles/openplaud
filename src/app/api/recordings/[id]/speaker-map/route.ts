@@ -1,9 +1,8 @@
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { aiEnhancements, recordings, transcriptions } from "@/db/schema";
+import { recordings, transcriptions } from "@/db/schema";
 import { auth } from "@/lib/auth";
-import { createUserStorageProvider } from "@/lib/storage/factory";
 
 export async function GET(
     request: Request,
@@ -24,7 +23,7 @@ export async function GET(
         const { id } = await params;
 
         const [recording] = await db
-            .select()
+            .select({ id: recordings.id })
             .from(recordings)
             .where(
                 and(
@@ -42,32 +41,24 @@ export async function GET(
         }
 
         const [transcription] = await db
-            .select()
+            .select({ speakerMap: transcriptions.speakerMap })
             .from(transcriptions)
             .where(eq(transcriptions.recordingId, id))
             .limit(1);
 
-        const [enhancement] = await db
-            .select()
-            .from(aiEnhancements)
-            .where(eq(aiEnhancements.recordingId, id))
-            .limit(1);
-
         return NextResponse.json({
-            recording,
-            transcription: transcription || null,
-            enhancement: enhancement || null,
+            speakerMap: transcription?.speakerMap ?? null,
         });
     } catch (error) {
-        console.error("Error fetching recording:", error);
+        console.error("Error fetching speaker map:", error);
         return NextResponse.json(
-            { error: "Failed to fetch recording" },
+            { error: "Failed to fetch speaker map" },
             { status: 500 },
         );
     }
 }
 
-export async function DELETE(
+export async function PATCH(
     request: Request,
     { params }: { params: Promise<{ id: string }> },
 ) {
@@ -84,9 +75,33 @@ export async function DELETE(
         }
 
         const { id } = await params;
+        const body = await request.json();
+        const speakerMap: Record<string, string> = body.speakerMap;
+
+        if (!speakerMap || typeof speakerMap !== "object") {
+            return NextResponse.json(
+                { error: "speakerMap must be an object" },
+                { status: 400 },
+            );
+        }
+
+        for (const [key, value] of Object.entries(speakerMap)) {
+            if (typeof key !== "string" || typeof value !== "string") {
+                return NextResponse.json(
+                    { error: "All speaker map keys and values must be strings" },
+                    { status: 400 },
+                );
+            }
+            if (value.length > 100) {
+                return NextResponse.json(
+                    { error: "Speaker names must be 100 characters or fewer" },
+                    { status: 400 },
+                );
+            }
+        }
 
         const [recording] = await db
-            .select()
+            .select({ id: recordings.id })
             .from(recordings)
             .where(
                 and(
@@ -103,24 +118,29 @@ export async function DELETE(
             );
         }
 
-        // Delete stored audio file
-        try {
-            const storage = await createUserStorageProvider(session.user.id);
-            await storage.deleteFile(recording.storagePath);
-        } catch (storageError) {
-            console.error("Failed to delete audio file:", storageError);
+        const [transcription] = await db
+            .select({ id: transcriptions.id })
+            .from(transcriptions)
+            .where(eq(transcriptions.recordingId, id))
+            .limit(1);
+
+        if (!transcription) {
+            return NextResponse.json(
+                { error: "No transcription found for this recording" },
+                { status: 404 },
+            );
         }
 
-        // Cascade deletes handle transcriptions, enhancements, and tag assignments
         await db
-            .delete(recordings)
-            .where(eq(recordings.id, id));
+            .update(transcriptions)
+            .set({ speakerMap })
+            .where(eq(transcriptions.id, transcription.id));
 
-        return NextResponse.json({ success: true });
+        return NextResponse.json({ success: true, speakerMap });
     } catch (error) {
-        console.error("Error deleting recording:", error);
+        console.error("Error updating speaker map:", error);
         return NextResponse.json(
-            { error: "Failed to delete recording" },
+            { error: "Failed to update speaker map" },
             { status: 500 },
         );
     }

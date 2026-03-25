@@ -64,6 +64,12 @@ const providerPresets = [
         defaultModel: "",
     },
     {
+        name: "Google Gemini",
+        baseUrl: "",
+        placeholder: "managed-via-service-account",
+        defaultModel: "gemini-2.5-flash",
+    },
+    {
         name: "Custom",
         baseUrl: "",
         placeholder: "Your API key",

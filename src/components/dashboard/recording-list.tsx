@@ -1,23 +1,29 @@
 "use client";
 
-import { Clock, HardDrive, Play } from "lucide-react";
+import { Clock, CloudOff, HardDrive, Play } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatDateTime } from "@/lib/format-date";
 import { cn } from "@/lib/utils";
 import type { DateTimeFormat } from "@/types/common";
-import type { Recording } from "@/types/recording";
+import type { Recording, Tag } from "@/types/recording";
 
 interface RecordingListProps {
     recordings: Recording[];
     currentRecording: Recording | null;
     onSelect: (recording: Recording) => void;
+    allTags: Tag[];
+    filterTagId: string | null;
+    onFilterTag: (tagId: string | null) => void;
 }
 
 export function RecordingList({
     recordings,
     currentRecording,
     onSelect,
+    allTags,
+    filterTagId,
+    onFilterTag,
 }: RecordingListProps) {
     const [dateTimeFormat, setDateTimeFormat] =
         useState<DateTimeFormat>("relative");
@@ -39,8 +45,15 @@ export function RecordingList({
             .catch(() => {});
     }, []);
 
+    const filteredRecordings = useMemo(() => {
+        if (!filterTagId) return recordings;
+        return recordings.filter((r) =>
+            (r.tags ?? []).some((t) => t.id === filterTagId),
+        );
+    }, [recordings, filterTagId]);
+
     const sortedAndPaginatedRecordings = useMemo(() => {
-        const sorted = [...recordings];
+        const sorted = [...filteredRecordings];
 
         switch (sortOrder) {
             case "newest":
@@ -65,9 +78,9 @@ export function RecordingList({
         const startIndex = (currentPage - 1) * itemsPerPage;
         const endIndex = startIndex + itemsPerPage;
         return sorted.slice(startIndex, endIndex);
-    }, [recordings, sortOrder, itemsPerPage, currentPage]);
+    }, [filteredRecordings, sortOrder, itemsPerPage, currentPage]);
 
-    const totalPages = Math.ceil(recordings.length / itemsPerPage);
+    const totalPages = Math.ceil(filteredRecordings.length / itemsPerPage);
 
     const formatDuration = (ms: number) => {
         const minutes = Math.floor(ms / 60000);
@@ -78,6 +91,48 @@ export function RecordingList({
     return (
         <Card hasNoPadding>
             <CardContent className="p-0">
+                {allTags.length > 0 && (
+                    <div className="flex items-center gap-1.5 p-3 border-b overflow-x-auto">
+                        <button
+                            type="button"
+                            onClick={() => onFilterTag(null)}
+                            className={cn(
+                                "px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors",
+                                filterTagId === null
+                                    ? "bg-primary text-primary-foreground"
+                                    : "bg-muted text-muted-foreground hover:bg-accent",
+                            )}
+                        >
+                            All
+                        </button>
+                        {allTags.map((tag) => (
+                            <button
+                                key={tag.id}
+                                type="button"
+                                onClick={() =>
+                                    onFilterTag(
+                                        filterTagId === tag.id ? null : tag.id,
+                                    )
+                                }
+                                className={cn(
+                                    "px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors",
+                                    filterTagId === tag.id
+                                        ? "text-white"
+                                        : "opacity-60 hover:opacity-100",
+                                )}
+                                style={{
+                                    backgroundColor: tag.color,
+                                    color:
+                                        filterTagId === tag.id
+                                            ? "white"
+                                            : undefined,
+                                }}
+                            >
+                                {tag.name}
+                            </button>
+                        ))}
+                    </div>
+                )}
                 <div className="divide-y">
                     {sortedAndPaginatedRecordings.map((recording) => {
                         const isSelected =
@@ -99,6 +154,15 @@ export function RecordingList({
                                             <h3 className="font-medium truncate">
                                                 {recording.filename}
                                             </h3>
+                                            {recording.upstreamDeleted && (
+                                                <span
+                                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-400 shrink-0"
+                                                    title="Deleted from Plaud — local copy only"
+                                                >
+                                                    <CloudOff className="w-2.5 h-2.5" />
+                                                    Local
+                                                </span>
+                                            )}
                                         </div>
                                         <div className="flex items-center gap-4 text-sm text-muted-foreground ml-6">
                                             <div className="flex items-center gap-1">
@@ -126,6 +190,24 @@ export function RecordingList({
                                                 dateTimeFormat,
                                             )}
                                         </p>
+                                        {(recording.tags ?? []).length > 0 && (
+                                            <div className="flex items-center gap-1 mt-1.5 ml-6 flex-wrap">
+                                                {(recording.tags ?? []).map(
+                                                    (tag) => (
+                                                        <span
+                                                            key={tag.id}
+                                                            className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium text-white"
+                                                            style={{
+                                                                backgroundColor:
+                                                                    tag.color,
+                                                            }}
+                                                        >
+                                                            {tag.name}
+                                                        </span>
+                                                    ),
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             </button>

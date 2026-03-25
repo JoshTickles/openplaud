@@ -25,12 +25,15 @@ export function TranscriptionSection({
     const [isProcessing, setIsProcessing] = useState(false);
 
     const handleTranscribe = async () => {
+        const isRetranscribe = !!transcription;
         setIsProcessing(true);
         try {
             const response = await fetch(
                 `/api/recordings/${recordingId}/transcribe`,
                 {
                     method: "POST",
+                    headers: isRetranscribe ? { "Content-Type": "application/json" } : undefined,
+                    body: isRetranscribe ? JSON.stringify({ force: true }) : undefined,
                 },
             );
 

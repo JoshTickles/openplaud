@@ -41,7 +41,15 @@ export async function POST(
             );
         }
 
-        const result = await transcribeRecording(session.user.id, id);
+        let force = false;
+        try {
+            const body = await request.json();
+            force = body?.force === true;
+        } catch {
+            // No body or invalid JSON — default to non-force
+        }
+
+        const result = await transcribeRecording(session.user.id, id, { force });
         if (!result.success) {
             const errorMessage = result.error || "Transcription failed";
             const status =

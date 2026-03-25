@@ -141,6 +141,7 @@ export const recordings = pgTable(
         zonemins: integer("zonemins"),
         scene: integer("scene"),
         isTrash: boolean("is_trash").notNull().default(false),
+        upstreamDeleted: boolean("upstream_deleted").notNull().default(false),
         createdAt: timestamp("created_at").notNull().defaultNow(),
         updatedAt: timestamp("updated_at").notNull().defaultNow(),
     },
@@ -179,14 +180,13 @@ export const transcriptions = pgTable(
             .default("server"), // 'server' or 'browser'
         provider: varchar("provider", { length: 100 }).notNull(), // e.g., 'openai', 'groq', 'browser'
         model: varchar("model", { length: 100 }).notNull(), // e.g., 'whisper-1', 'whisper-large-v3-turbo', 'whisper-base'
+        speakerMap: jsonb("speaker_map").$type<Record<string, string>>(),
         createdAt: timestamp("created_at").notNull().defaultNow(),
     },
     (table) => ({
-        // Index for looking up transcription by recording (most common query)
         recordingIdIdx: index("transcriptions_recording_id_idx").on(
             table.recordingId,
         ),
-        // Index for querying user's transcriptions
         userIdIdx: index("transcriptions_user_id_idx").on(table.userId),
     }),
 );
@@ -332,3 +332,47 @@ export const userSettings = pgTable("user_settings", {
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+// Recording Tags (user-defined)
+export const recordingTags = pgTable(
+    "recording_tags",
+    {
+        id: text("id")
+            .primaryKey()
+            .$defaultFn(() => nanoid()),
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
+        name: varchar("name", { length: 50 }).notNull(),
+        color: varchar("color", { length: 7 }).notNull().default("#3b82f6"),
+        createdAt: timestamp("created_at").notNull().defaultNow(),
+    },
+    (table) => ({
+        userIdIdx: index("recording_tags_user_id_idx").on(table.userId),
+        userNameUnique: unique().on(table.userId, table.name),
+    }),
+);
+
+// Many-to-many join: recordings <-> tags
+export const recordingTagAssignments = pgTable(
+    "recording_tag_assignments",
+    {
+        id: text("id")
+            .primaryKey()
+            .$defaultFn(() => nanoid()),
+        recordingId: text("recording_id")
+            .notNull()
+            .references(() => recordings.id, { onDelete: "cascade" }),
+        tagId: text("tag_id")
+            .notNull()
+            .references(() => recordingTags.id, { onDelete: "cascade" }),
+        createdAt: timestamp("created_at").notNull().defaultNow(),
+    },
+    (table) => ({
+        recordingIdIdx: index("tag_assignments_recording_id_idx").on(
+            table.recordingId,
+        ),
+        tagIdIdx: index("tag_assignments_tag_id_idx").on(table.tagId),
+        uniqueAssignment: unique().on(table.recordingId, table.tagId),
+    }),
+);

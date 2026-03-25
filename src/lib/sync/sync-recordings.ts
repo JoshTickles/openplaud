@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, inArray, notInArray } from "drizzle-orm";
 import { db } from "@/db";
 import { plaudConnections, recordings, userSettings, users } from "@/db/schema";
 import { env } from "@/lib/env";
@@ -24,6 +24,7 @@ const SYNC_CONFIG = {
 interface SyncResult {
     newRecordings: number;
     updatedRecordings: number;
+    removedRecordings: number;
     errors: string[];
     /** IDs of recordings that need transcription */
     pendingTranscriptionIds: string[];
@@ -200,6 +201,7 @@ export async function syncRecordingsForUser(
     const result: SyncResult = {
         newRecordings: 0,
         updatedRecordings: 0,
+        removedRecordings: 0,
         errors: [],
         pendingTranscriptionIds: [],
     };
@@ -246,6 +248,7 @@ export async function syncRecordingsForUser(
         );
         const storage = await createUserStorageProvider(userId);
         const allNewRecordingNames: string[] = [];
+        const seenPlaudFileIds = new Set<string>();
 
         // Paginated sync - fetch newest first
         let page = 0;
@@ -266,6 +269,10 @@ export async function syncRecordingsForUser(
 
             if (plaudRecordings.length === 0) {
                 break;
+            }
+
+            for (const rec of plaudRecordings) {
+                seenPlaudFileIds.add(rec.id);
             }
 
             // Process in concurrent batches
@@ -311,6 +318,43 @@ export async function syncRecordingsForUser(
             }
 
             page++;
+        }
+
+        // Flag local recordings as "upstream deleted" if they no longer exist on Plaud
+        if (seenPlaudFileIds.size > 0) {
+            try {
+                const plaudIds = Array.from(seenPlaudFileIds);
+
+                // Mark missing ones as upstream-deleted
+                const flagged = await db
+                    .update(recordings)
+                    .set({ upstreamDeleted: true, updatedAt: new Date() })
+                    .where(
+                        and(
+                            eq(recordings.userId, userId),
+                            eq(recordings.isTrash, false),
+                            eq(recordings.upstreamDeleted, false),
+                            notInArray(recordings.plaudFileId, plaudIds),
+                        ),
+                    )
+                    .returning({ id: recordings.id });
+
+                result.removedRecordings = flagged.length;
+
+                // Clear the flag for any that reappeared upstream
+                await db
+                    .update(recordings)
+                    .set({ upstreamDeleted: false, updatedAt: new Date() })
+                    .where(
+                        and(
+                            eq(recordings.userId, userId),
+                            eq(recordings.upstreamDeleted, true),
+                            inArray(recordings.plaudFileId, plaudIds),
+                        ),
+                    );
+            } catch (cleanupError) {
+                console.error("Failed to flag upstream-deleted recordings:", cleanupError);
+            }
         }
 
         // Update last sync time

@@ -11,4 +11,5 @@ export type SettingsSection =
     | "display"
     | "notifications"
     | "export"
-    | "obsidian";
+    | "obsidian"
+    | "tags";

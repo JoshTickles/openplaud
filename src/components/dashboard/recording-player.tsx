@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { MetalButton } from "@/components/metal-button";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Slider } from "@/components/ui/slider";
 import type { Recording } from "@/types/recording";
 
@@ -232,13 +232,10 @@ export function RecordingPlayer({ recording, onEnded }: RecordingPlayerProps) {
 
     return (
         <Card>
-            <CardHeader>
-                <CardTitle>{recording.filename}</CardTitle>
+            <CardContent className="pt-5 space-y-4">
                 <p className="text-sm text-muted-foreground">
                     {new Date(recording.startTime).toLocaleString()}
                 </p>
-            </CardHeader>
-            <CardContent className="space-y-4">
                 <div className="flex items-center gap-4">
                     <Button
                         onClick={togglePlayPause}

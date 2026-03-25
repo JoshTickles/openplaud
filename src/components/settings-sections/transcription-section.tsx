@@ -418,9 +418,9 @@ export function TranscriptionSection() {
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="2">2 speakers</SelectItem>
-                                <SelectItem value="3">3 speakers</SelectItem>
-                                <SelectItem value="4">4 speakers</SelectItem>
+                                {Array.from({ length: 9 }, (_, i) => i + 2).map((n) => (
+                                    <SelectItem key={n} value={String(n)}>{n} speakers</SelectItem>
+                                ))}
                             </SelectContent>
                         </Select>
                     </div>

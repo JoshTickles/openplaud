@@ -3,25 +3,35 @@ import { OpenAI } from "openai";
 import { db } from "@/db";
 import { apiCredentials, userSettings } from "@/db/schema";
 import { decrypt } from "@/lib/encryption";
+import { inferProviderType } from "@/lib/transcription/providers/factory";
 import {
     getDefaultPromptConfig,
     getPromptById,
     type PromptConfiguration,
 } from "./prompt-presets";
 
+const DEFAULT_CHAT_MODEL =
+    process.env.ENHANCEMENT_CHAT_MODEL || "azure/openai-gpt-lb";
+
+function isChatCapableProvider(cred: {
+    provider: string;
+    baseUrl: string | null;
+}): boolean {
+    const providerType = inferProviderType(cred.provider, cred.baseUrl);
+    return providerType !== "google";
+}
+
 export async function generateTitleFromTranscription(
     userId: string,
     transcriptionText: string,
 ): Promise<string | null> {
     try {
-        // Get user's prompt configuration
         const [userSettingsRow] = await db
             .select()
             .from(userSettings)
             .where(eq(userSettings.userId, userId))
             .limit(1);
 
-        // Get prompt config
         let promptConfig: PromptConfiguration = getDefaultPromptConfig();
         if (userSettingsRow?.titleGenerationPrompt) {
             const config =
@@ -32,7 +42,6 @@ export async function generateTitleFromTranscription(
             };
         }
 
-        // Get the prompt by ID (preset or custom)
         let promptTemplate = getPromptById(
             promptConfig.selectedPrompt,
             promptConfig,
@@ -52,54 +61,44 @@ export async function generateTitleFromTranscription(
             }
         }
 
-        // Get user's AI credentials (prefer enhancement provider, fallback to transcription)
-        const [enhancementCredentials] = await db
+        const allCredentials = await db
             .select()
             .from(apiCredentials)
-            .where(
-                and(
-                    eq(apiCredentials.userId, userId),
-                    eq(apiCredentials.isDefaultEnhancement, true),
-                ),
-            )
-            .limit(1);
+            .where(eq(apiCredentials.userId, userId));
 
-        const [transcriptionCredentials] = await db
-            .select()
-            .from(apiCredentials)
-            .where(
-                and(
-                    eq(apiCredentials.userId, userId),
-                    eq(apiCredentials.isDefaultTranscription, true),
-                ),
-            )
-            .limit(1);
+        const enhancementCred = allCredentials.find(
+            (c) => c.isDefaultEnhancement && isChatCapableProvider(c),
+        );
+        const transcriptionCred = allCredentials.find(
+            (c) => c.isDefaultTranscription && isChatCapableProvider(c),
+        );
+        const anyChatCred = allCredentials.find((c) =>
+            isChatCapableProvider(c),
+        );
 
-        // Prefer enhancement provider, fallback to transcription provider
-        const credentials = enhancementCredentials || transcriptionCredentials;
+        const credentials =
+            enhancementCred || transcriptionCred || anyChatCred;
 
         if (!credentials) {
-            console.warn("No AI provider found for title generation");
+            console.warn("No chat-capable AI provider found for title generation");
             return null;
         }
 
-        // Decrypt API key
         const apiKey = decrypt(credentials.apiKey);
 
-        // Create OpenAI client
         const openai = new OpenAI({
             apiKey,
             baseURL: credentials.baseUrl || undefined,
         });
 
-        // Use a lightweight model for title generation
-        // Prefer chat models (gpt-4o-mini, gpt-3.5-turbo) over Whisper models
-        // Fallback to default model if no specific model is set
-        let model = credentials.defaultModel || "gpt-4o-mini";
+        let model = credentials.defaultModel || DEFAULT_CHAT_MODEL;
 
-        // If the model is a Whisper model (for transcription), use a chat model instead
-        if (model.includes("whisper") || model.includes("whisper-")) {
-            model = "gpt-4o-mini";
+        if (
+            model.includes("whisper") ||
+            model.includes("faster-whisper") ||
+            model.includes("gemini")
+        ) {
+            model = DEFAULT_CHAT_MODEL;
         }
 
         // Truncate transcription if too long (to save tokens)

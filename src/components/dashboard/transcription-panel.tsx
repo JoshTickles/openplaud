@@ -1,13 +1,16 @@
 "use client";
 
-import { FileText, Languages, Sparkles } from "lucide-react";
+import { FileText, Languages, RefreshCw, Sparkles } from "lucide-react";
+import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { Recording } from "@/types/recording";
+import { SpeakerLabelEditor } from "./speaker-label-editor";
 
 interface Transcription {
     text?: string;
     language?: string;
+    speakerMap?: Record<string, string> | null;
 }
 
 interface TranscriptionPanelProps {
@@ -15,14 +18,44 @@ interface TranscriptionPanelProps {
     transcription?: Transcription;
     isTranscribing: boolean;
     onTranscribe: () => void;
+    onRetranscribe: () => void;
+    onSpeakerMapChanged: (map: Record<string, string>) => void;
+}
+
+function applySpeakerMap(
+    text: string,
+    speakerMap: Record<string, string> | null | undefined,
+): string {
+    if (!speakerMap || Object.keys(speakerMap).length === 0) return text;
+
+    let result = text;
+    const sorted = Object.entries(speakerMap).sort(
+        ([a], [b]) => b.length - a.length,
+    );
+    for (const [label, name] of sorted) {
+        if (!name.trim()) continue;
+        const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        result = result.replace(new RegExp(escaped, "gi"), name);
+    }
+    return result;
 }
 
 export function TranscriptionPanel({
-    recording: _recording,
+    recording,
     transcription,
     isTranscribing,
     onTranscribe,
+    onRetranscribe,
+    onSpeakerMapChanged,
 }: TranscriptionPanelProps) {
+    const displayText = useMemo(
+        () =>
+            transcription?.text
+                ? applySpeakerMap(transcription.text, transcription.speakerMap)
+                : "",
+        [transcription?.text, transcription?.speakerMap],
+    );
+
     return (
         <Card>
             <CardHeader>
@@ -31,25 +64,30 @@ export function TranscriptionPanel({
                         <FileText className="w-5 h-5" />
                         Transcription
                     </CardTitle>
-                    {!transcription?.text && !isTranscribing && (
-                        <Button
-                            onClick={onTranscribe}
-                            size="sm"
-                            disabled={isTranscribing}
-                        >
-                            {isTranscribing ? (
-                                <>
-                                    <Sparkles className="w-4 h-4 mr-2 animate-pulse" />
-                                    Transcribing...
-                                </>
-                            ) : (
-                                <>
-                                    <Sparkles className="w-4 h-4 mr-2" />
-                                    Transcribe
-                                </>
-                            )}
-                        </Button>
-                    )}
+                    <div className="flex items-center gap-2">
+                        {transcription?.text && !isTranscribing && (
+                            <Button
+                                onClick={onRetranscribe}
+                                size="sm"
+                                variant="outline"
+                            >
+                                <RefreshCw className="w-4 h-4 mr-2" />
+                                Re-transcribe
+                            </Button>
+                        )}
+                        {!transcription?.text && !isTranscribing && (
+                            <Button onClick={onTranscribe} size="sm">
+                                <Sparkles className="w-4 h-4 mr-2" />
+                                Transcribe
+                            </Button>
+                        )}
+                        {isTranscribing && (
+                            <Button size="sm" disabled>
+                                <Sparkles className="w-4 h-4 mr-2 animate-pulse" />
+                                Transcribing...
+                            </Button>
+                        )}
+                    </div>
                 </div>
             </CardHeader>
             <CardContent>
@@ -62,9 +100,15 @@ export function TranscriptionPanel({
                     </div>
                 ) : transcription?.text ? (
                     <div className="space-y-4">
+                        <SpeakerLabelEditor
+                            recordingId={recording.id}
+                            transcriptionText={transcription.text}
+                            speakerMap={transcription.speakerMap ?? null}
+                            onSpeakerMapChanged={onSpeakerMapChanged}
+                        />
                         <div className="bg-muted rounded-lg p-4 max-h-96 overflow-y-auto">
                             <p className="text-sm whitespace-pre-wrap leading-relaxed">
-                                {transcription.text}
+                                {displayText}
                             </p>
                         </div>
                         <div className="flex items-center gap-4 text-xs text-muted-foreground pt-2 border-t">
