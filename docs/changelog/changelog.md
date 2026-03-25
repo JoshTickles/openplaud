@@ -1,5 +1,6 @@
 # Changelog
 
+- [Fixed]: Removed all hardcoded secrets, internal IPs, and infrastructure details from code and git history using git-filter-repo; all sensitive values now come from environment variables only (josh, 2026-03-25)
 - [Added]: Implemented Google Speech diarization provider with runtime-only service-account configuration and provider routing support for speaker-labeled transcripts (josh, 2026-03-24)
 - [Added]: APAC server entry (api-apse1.plaud.ai) to Plaud server configuration (josh, 2026-03-24)
 - [Added]: Audio format detection utility (`detect-format.ts`) that identifies OGG/Opus, MP3, WAV, and FLAC from magic bytes — fixes Plaud misnamed .mp3 files that are actually Opus (josh, 2026-03-24)
