@@ -13,7 +13,7 @@ interface TranscriptMetadata {
     keyPoints?: string[] | null;
 }
 
-function formatDuration(ms: number): string {
+export function formatDuration(ms: number): string {
     const totalSeconds = Math.floor(ms / 1000);
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
@@ -23,14 +23,14 @@ function formatDuration(ms: number): string {
     return `${remainingMinutes}m ${seconds}s`;
 }
 
-function escapeYaml(value: string): string {
+export function escapeYaml(value: string): string {
     if (/[:"{}[\],&*?|>!%@`#]/.test(value) || value.startsWith("'") || value.startsWith('"')) {
         return `"${value.replace(/"/g, '\\"')}"`;
     }
     return value;
 }
 
-function applySpeakerMap(
+export function applySpeakerMap(
     text: string,
     speakerMap: Record<string, string> | null | undefined,
 ): string {
