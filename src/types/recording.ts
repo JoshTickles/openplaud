@@ -1,16 +1,28 @@
 import type { InferSelectModel } from "drizzle-orm";
 import type { recordings } from "@/db/schema";
 
+export interface Tag {
+    id: string;
+    name: string;
+    color: string;
+}
+
 export type RecordingQueryResult = Pick<
     InferSelectModel<typeof recordings>,
-    "id" | "filename" | "duration" | "startTime" | "filesize" | "deviceSn"
+    | "id"
+    | "filename"
+    | "duration"
+    | "startTime"
+    | "filesize"
+    | "deviceSn"
+    | "upstreamDeleted"
 >;
 
 export type Recording = Omit<RecordingQueryResult, "startTime"> & {
     startTime: string;
+    tags?: Tag[];
 };
 
-// Helper to serialize a recording query result
 export function serializeRecording(recording: RecordingQueryResult): Recording {
     return {
         ...recording,

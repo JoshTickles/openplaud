@@ -11,6 +11,7 @@ import {
     Play,
     RefreshCw,
     Settings as SettingsIcon,
+    Tags,
 } from "lucide-react";
 import * as React from "react";
 import {
@@ -59,6 +60,8 @@ interface SettingsDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     initialProviders?: Provider[];
+    tags?: Array<{ id: string; name: string; color: string }>;
+    onTagsChanged?: () => void;
     onReRunOnboarding?: () => void;
 }
 
@@ -82,6 +85,7 @@ const settingsNav = [
     { name: "Export/Backup", id: "export" as SettingsSection, icon: Download },
     { name: "Storage", id: "storage" as SettingsSection, icon: HardDrive },
     { name: "Obsidian", id: "obsidian" as SettingsSection, icon: BookOpen },
+    { name: "Tags", id: "tags" as SettingsSection, icon: Tags },
 ];
 
 const STORAGE_KEY = "settings-last-section";
@@ -90,6 +94,8 @@ export function SettingsDialog({
     open,
     onOpenChange,
     initialProviders = [],
+    tags = [],
+    onTagsChanged,
     onReRunOnboarding,
 }: SettingsDialogProps) {
     const [activeSection, setActiveSection] =
@@ -346,6 +352,8 @@ export function SettingsDialog({
                                 <SettingsContent
                                     activeSection={activeSection}
                                     initialProviders={initialProviders}
+                                    tags={tags}
+                                    onTagsChanged={onTagsChanged}
                                     onReRunOnboarding={onReRunOnboarding}
                                 />
                             </div>

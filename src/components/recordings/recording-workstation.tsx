@@ -194,16 +194,17 @@ export function RecordingWorkstation({
                                 </Button>
                             </div>
                         ) : (
-                            <div className="flex items-center gap-2 group">
+                            <div className="flex items-center gap-2">
                                 <h1 className="text-3xl font-bold truncate">
                                     {filename}
                                 </h1>
                                 <Button
                                     size="icon"
-                                    variant="ghost"
+                                    variant="outline"
                                     onClick={handleRenameStart}
-                                    className="opacity-0 group-hover:opacity-100 transition-opacity"
                                     aria-label="Rename recording"
+                                    title="Rename and sync to Plaud"
+                                    className="shrink-0"
                                 >
                                     <Pencil className="w-4 h-4" />
                                 </Button>

@@ -120,22 +120,20 @@ git merge upstream/main
 - ✅ `bun run build` passes cleanly — 28 routes including all new endpoints
 - ✅ All 60 tests pass (`bun run test`)
 
-### 🔲 Remaining
+#### 12. Gemini Multimodal Diarization Provider
+- ✅ `src/lib/transcription/providers/google-speech-provider.ts` — uses Gemini via Vertex AI (`@google-cloud/vertexai`)
+- Sends audio as inline multimodal data to Gemini with speaker-labeling prompt
+- No GCS upload required, no inline-audio size limits (unlike the old Speech-to-Text v1 API)
+- Default model: `gemini-2.5-flash`; override via provider `defaultModel` in UI
+- ✅ Wired into `types.ts`, `factory.ts`, and `index.ts` with `google` provider inference
+- ✅ `transcribe-recording.ts` forwards `diarizationSpeakers` and auto-falls-back to non-Google provider on failure
+- ✅ Local Docker runtime mounts service account JSON and exports Google env vars at runtime only
+- ✅ Replaced `@google-cloud/speech` dependency with `@google-cloud/vertexai`
 
-#### 12. Commit + Push Current Local Changes
-- Route fix for `/api/recordings/[id]/transcribe` now uses provider abstraction (`transcribeRecording`)
-- New local upload helper for OpenAI-compatible transcription providers (`src/lib/transcription/providers/upload.ts`)
-- Speaker diarization settings + migration (`speaker_diarization`, `diarization_speakers`)
-- Changelog updates
+### 🔲 Remaining / Next
 
-#### 13. Planned Feature — Google Speech Diarization
-- Add a new transcription provider for Google Speech-to-Text diarization output
-- Keep current LiteLLM/Azure path as fallback for plain transcription
-- Store speaker-labeled transcript text in existing `transcriptions.text` format
-- Use Gemini optionally for post-processing/cleanup only (not primary diarization source)
-- Required config:
-  - `GOOGLE_APPLICATION_CREDENTIALS` (service account JSON path), or equivalent secure credential injection
-  - Speech-to-Text API enabled in GCP project
+#### 13. Optional UX Polishing
+- Optional: refine provider preset copy for Google auth expectations in settings UI
 
 ---
 
@@ -147,9 +145,10 @@ The `provider` field in `api_credentials` controls which implementation is used 
 
 | Provider name contains | `baseUrl` | Inferred type | Class used |
 |------------------------|-----------|---------------|------------|
+| `google` | any | `google` | `GoogleSpeechTranscriptionProvider` |
 | `azure` | any | `azure` | `AzureTranscriptionProvider` |
 | `litellm` | any | `litellm` | `LiteLLMTranscriptionProvider` |
-| anything | non-openai URL | `local` | `OpenAITranscriptionProvider` |
+| anything | non-openai URL | `local` | `LiteLLMTranscriptionProvider` |
 | anything | openai URL or blank | `openai` | `OpenAITranscriptionProvider` |
 
 #### Azure Whisper (direct)
@@ -175,6 +174,13 @@ The `provider` field in `api_credentials` controls which implementation is used 
 - API Key: `not-needed`
 - Base URL: `http://openplaud-whisper:8000/v1` (Docker internal) or `http://localhost:8300/v1`
 - Model: `Systran/faster-whisper-small`
+
+#### Google / Gemini (diarization)
+- Provider name: `google` or `Google Speech`
+- API Key: placeholder value (ignored at runtime; auth via service account)
+- Base URL: leave blank
+- Model: `gemini-2.5-flash` (or any Gemini model; `latest_long` auto-maps to default)
+- Runtime env (container): `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_PROJECT_ID`, optional `GOOGLE_LOCATION`
 
 ---
 

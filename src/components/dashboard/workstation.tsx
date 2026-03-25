@@ -1,6 +1,6 @@
 "use client";
 
-import { Mic, RefreshCw, Settings } from "lucide-react";
+import { BookOpen, CheckCircle, CloudOff, Mic, Pencil, RefreshCw, Settings, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -9,6 +9,7 @@ import { SettingsDialog } from "@/components/settings-dialog";
 import { SyncStatus } from "@/components/sync-status";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { useAutoSync } from "@/hooks/use-auto-sync";
 import {
     requestNotificationPermission,
@@ -16,27 +17,35 @@ import {
     showSyncCompleteNotification,
 } from "@/lib/notifications/browser";
 import { getSyncSettings, SYNC_CONFIG } from "@/lib/sync-config";
-import type { Recording } from "@/types/recording";
+import type { Recording, Tag } from "@/types/recording";
 import { RecordingList } from "./recording-list";
 import { RecordingPlayer } from "./recording-player";
+import { TagAssignment } from "./tag-assignment";
 import { TranscriptionPanel } from "./transcription-panel";
 
 interface TranscriptionData {
     text?: string;
     language?: string;
+    speakerMap?: Record<string, string>;
 }
 
 interface WorkstationProps {
     recordings: Recording[];
     transcriptions: Map<string, TranscriptionData>;
+    allTags: Tag[];
 }
 
-export function Workstation({ recordings, transcriptions }: WorkstationProps) {
+export function Workstation({ recordings, transcriptions, allTags }: WorkstationProps) {
     const router = useRouter();
     const [currentRecording, setCurrentRecording] = useState<Recording | null>(
         recordings.length > 0 ? recordings[0] : null,
     );
     const [isTranscribing, setIsTranscribing] = useState(false);
+    const [isRenaming, setIsRenaming] = useState(false);
+    const [renameValue, setRenameValue] = useState("");
+    const [isSavingRename, setIsSavingRename] = useState(false);
+    const [tags, setTags] = useState<Tag[]>(allTags);
+    const [filterTagId, setFilterTagId] = useState<string | null>(null);
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [onboardingOpen, setOnboardingOpen] = useState(false);
     const [providers, setProviders] = useState<
@@ -174,6 +183,177 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
         }
     }, [currentRecording, router]);
 
+    const handleRetranscribe = useCallback(async () => {
+        if (!currentRecording) return;
+
+        setIsTranscribing(true);
+        try {
+            const response = await fetch(
+                `/api/recordings/${currentRecording.id}/transcribe`,
+                {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ force: true }),
+                },
+            );
+
+            if (response.ok) {
+                toast.success("Re-transcription complete");
+                router.refresh();
+            } else {
+                const error = await response.json();
+                toast.error(error.error || "Re-transcription failed");
+            }
+        } catch {
+            toast.error("Failed to re-transcribe recording");
+        } finally {
+            setIsTranscribing(false);
+        }
+    }, [currentRecording, router]);
+
+    const handleRenameStart = useCallback(() => {
+        if (!currentRecording) return;
+        setRenameValue(currentRecording.filename);
+        setIsRenaming(true);
+    }, [currentRecording]);
+
+    const handleRenameCancel = useCallback(() => {
+        setIsRenaming(false);
+        setRenameValue("");
+    }, []);
+
+    const handleRenameSave = useCallback(async () => {
+        if (!currentRecording) return;
+        const newName = renameValue.trim();
+        if (!newName || newName === currentRecording.filename) {
+            handleRenameCancel();
+            return;
+        }
+
+        setIsSavingRename(true);
+        try {
+            const response = await fetch(
+                `/api/recordings/${currentRecording.id}/rename`,
+                {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ filename: newName }),
+                },
+            );
+
+            if (!response.ok) {
+                const error = await response.json();
+                toast.error(error.error || "Failed to rename recording");
+                return;
+            }
+
+            setCurrentRecording((prev) =>
+                prev ? { ...prev, filename: newName } : prev,
+            );
+            setIsRenaming(false);
+            toast.success("Recording renamed & synced to Plaud");
+            router.refresh();
+        } catch {
+            toast.error("Failed to rename recording");
+        } finally {
+            setIsSavingRename(false);
+        }
+    }, [currentRecording, renameValue, handleRenameCancel, router]);
+
+    const handleDelete = useCallback(async () => {
+        if (!currentRecording) return;
+        if (
+            !confirm(
+                `Delete "${currentRecording.filename}"? This will remove the recording and its transcription permanently.`,
+            )
+        ) {
+            return;
+        }
+
+        try {
+            const response = await fetch(
+                `/api/recordings/${currentRecording.id}`,
+                { method: "DELETE" },
+            );
+
+            if (response.ok) {
+                toast.success("Recording deleted");
+                setCurrentRecording(null);
+                router.refresh();
+            } else {
+                const error = await response.json();
+                toast.error(error.error || "Failed to delete recording");
+            }
+        } catch {
+            toast.error("Failed to delete recording");
+        }
+    }, [currentRecording, router]);
+
+    const refreshTags = useCallback(async () => {
+        try {
+            const res = await fetch("/api/tags");
+            if (res.ok) {
+                const data = await res.json();
+                setTags(data.tags ?? []);
+            }
+        } catch {
+            // best-effort
+        }
+    }, []);
+
+    const handleTagsChanged = useCallback(
+        (recordingId: string, newTags: Tag[]) => {
+            setCurrentRecording((prev) =>
+                prev?.id === recordingId
+                    ? { ...prev, tags: newTags }
+                    : prev,
+            );
+            router.refresh();
+        },
+        [router],
+    );
+
+    const [isExporting, setIsExporting] = useState(false);
+
+    const handlePushToObsidian = useCallback(async (options?: { silent?: boolean }) => {
+        if (!currentRecording) return;
+
+        const silent = options?.silent ?? false;
+        setIsExporting(true);
+        try {
+            const response = await fetch(
+                `/api/recordings/${currentRecording.id}/export-obsidian`,
+                { method: "POST" },
+            );
+
+            const data = await response.json();
+
+            if (response.ok) {
+                toast.success(`Pushed to Obsidian: ${data.vaultPath}`);
+            } else if (!silent) {
+                toast.error(data.error || "Failed to push to Obsidian");
+            }
+        } catch {
+            if (!silent) toast.error("Failed to push to Obsidian");
+        } finally {
+            setIsExporting(false);
+        }
+    }, [currentRecording]);
+
+    const handleSpeakerMapChanged = useCallback(
+        (map: Record<string, string>) => {
+            if (!currentRecording) return;
+            const key = currentRecording.id;
+            const existing = transcriptions.get(key);
+            if (existing) {
+                transcriptions.set(key, { ...existing, speakerMap: map });
+            }
+            router.refresh();
+            handlePushToObsidian({ silent: true });
+        },
+        [currentRecording, transcriptions, router, handlePushToObsidian],
+    );
+
     return (
         <>
             <div className="bg-background">
@@ -259,12 +439,79 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
                                     recordings={recordings}
                                     currentRecording={currentRecording}
                                     onSelect={setCurrentRecording}
+                                    allTags={tags}
+                                    filterTagId={filterTagId}
+                                    onFilterTag={setFilterTagId}
                                 />
                             </div>
 
                             <div className="lg:col-span-2 space-y-6">
                                 {currentRecording ? (
                                     <>
+                                        {/* Recording title with rename */}
+                                        <div className="flex items-center gap-3">
+                                            {isRenaming ? (
+                                                <div className="flex items-center gap-2 flex-1">
+                                                    <Input
+                                                        value={renameValue}
+                                                        onChange={(e) => setRenameValue(e.target.value)}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === "Enter") handleRenameSave();
+                                                            if (e.key === "Escape") handleRenameCancel();
+                                                        }}
+                                                        className="text-lg font-semibold h-auto py-1"
+                                                        autoFocus
+                                                        disabled={isSavingRename}
+                                                    />
+                                                    <Button size="icon" variant="ghost" onClick={handleRenameSave} disabled={isSavingRename}>
+                                                        <CheckCircle className="w-5 h-5 text-green-500" />
+                                                    </Button>
+                                                    <Button size="icon" variant="ghost" onClick={handleRenameCancel} disabled={isSavingRename}>
+                                                        <X className="w-5 h-5" />
+                                                    </Button>
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <h2 className="text-lg font-semibold truncate flex-1">
+                                                        {currentRecording.filename}
+                                                    </h2>
+                                                    {currentRecording.upstreamDeleted && (
+                                                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-amber-500/20 text-amber-400 shrink-0">
+                                                            <CloudOff className="w-3 h-3" />
+                                                            Local only
+                                                        </span>
+                                                    )}
+                                                    <Button
+                                                        size="icon"
+                                                        variant="outline"
+                                                        onClick={handleRenameStart}
+                                                        title="Rename and sync to Plaud"
+                                                        className="shrink-0"
+                                                    >
+                                                        <Pencil className="w-4 h-4" />
+                                                    </Button>
+                                                    {currentRecording.upstreamDeleted && (
+                                                        <Button
+                                                            size="icon"
+                                                            variant="outline"
+                                                            onClick={handleDelete}
+                                                            title="Delete local recording"
+                                                            className="shrink-0 text-destructive hover:text-destructive"
+                                                        >
+                                                            <Trash2 className="w-4 h-4" />
+                                                        </Button>
+                                                    )}
+                                                </>
+                                            )}
+                                        </div>
+
+                                        <TagAssignment
+                                            recording={currentRecording}
+                                            allTags={tags}
+                                            onTagsChanged={handleTagsChanged}
+                                            onTagCreated={refreshTags}
+                                        />
+
                                         <RecordingPlayer
                                             recording={currentRecording}
                                             onEnded={() => {
@@ -292,7 +539,22 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
                                             transcription={currentTranscription}
                                             isTranscribing={isTranscribing}
                                             onTranscribe={handleTranscribe}
+                                            onRetranscribe={handleRetranscribe}
+                                            onSpeakerMapChanged={handleSpeakerMapChanged}
                                         />
+                                        {currentTranscription?.text && (
+                                            <div className="flex justify-end">
+                                                <Button
+                                                    onClick={() => handlePushToObsidian()}
+                                                    disabled={isExporting}
+                                                    variant="outline"
+                                                    size="sm"
+                                                >
+                                                    <BookOpen className="w-4 h-4 mr-2" />
+                                                    {isExporting ? "Pushing..." : "Push to Obsidian"}
+                                                </Button>
+                                            </div>
+                                        )}
                                     </>
                                 ) : (
                                     <Card>
@@ -314,6 +576,8 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
                 open={settingsOpen}
                 onOpenChange={setSettingsOpen}
                 initialProviders={providers}
+                tags={tags}
+                onTagsChanged={refreshTags}
                 onReRunOnboarding={() => {
                     setSettingsOpen(false);
                     setOnboardingOpen(true);

@@ -5,6 +5,10 @@ import { db } from "@/db";
 import { aiEnhancements, apiCredentials, recordings, transcriptions } from "@/db/schema";
 import { auth } from "@/lib/auth";
 import { decrypt } from "@/lib/encryption";
+import { inferProviderType } from "@/lib/transcription/providers/factory";
+
+const DEFAULT_CHAT_MODEL =
+    process.env.ENHANCEMENT_CHAT_MODEL || "azure/openai-gpt-lb";
 
 const ENHANCEMENT_SYSTEM_PROMPT = `You are an AI assistant that analyzes transcriptions and produces structured output. You MUST respond with valid JSON only, no markdown, no code blocks. The JSON must have this exact structure:
 {
@@ -19,6 +23,13 @@ Rules:
 - keyPoints: the most important facts, decisions, or insights. 3-7 items.
 - Be specific, not generic
 - Do not invent information not present in the transcription`;
+
+function isChatCapable(cred: {
+    provider: string;
+    baseUrl: string | null;
+}): boolean {
+    return inferProviderType(cred.provider, cred.baseUrl) !== "google";
+}
 
 export async function POST(
     request: Request,
@@ -58,33 +69,25 @@ export async function POST(
             );
         }
 
-        const [enhancementCreds] = await db
+        const allCredentials = await db
             .select()
             .from(apiCredentials)
-            .where(
-                and(
-                    eq(apiCredentials.userId, session.user.id),
-                    eq(apiCredentials.isDefaultEnhancement, true),
-                ),
-            )
-            .limit(1);
+            .where(eq(apiCredentials.userId, session.user.id));
 
-        const [transcriptionCreds] = await db
-            .select()
-            .from(apiCredentials)
-            .where(
-                and(
-                    eq(apiCredentials.userId, session.user.id),
-                    eq(apiCredentials.isDefaultTranscription, true),
-                ),
-            )
-            .limit(1);
+        const enhancementCred = allCredentials.find(
+            (c) => c.isDefaultEnhancement && isChatCapable(c),
+        );
+        const transcriptionCred = allCredentials.find(
+            (c) => c.isDefaultTranscription && isChatCapable(c),
+        );
+        const anyChatCred = allCredentials.find((c) => isChatCapable(c));
 
-        const credentials = enhancementCreds || transcriptionCreds;
+        const credentials =
+            enhancementCred || transcriptionCred || anyChatCred;
 
         if (!credentials) {
             return NextResponse.json(
-                { error: "No AI provider configured" },
+                { error: "No chat-capable AI provider configured (Google Gemini cannot be used for enhancements — use LiteLLM or OpenAI-compatible)" },
                 { status: 400 },
             );
         }
@@ -95,9 +98,13 @@ export async function POST(
             baseURL: credentials.baseUrl || undefined,
         });
 
-        let model = credentials.defaultModel || "gpt-4o-mini";
-        if (model.includes("whisper")) {
-            model = "gpt-4o-mini";
+        let model = credentials.defaultModel || DEFAULT_CHAT_MODEL;
+        if (
+            model.includes("whisper") ||
+            model.includes("faster-whisper") ||
+            model.includes("gemini")
+        ) {
+            model = DEFAULT_CHAT_MODEL;
         }
 
         const maxLength = 4000;

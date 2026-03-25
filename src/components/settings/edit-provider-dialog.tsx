@@ -75,12 +75,33 @@ const providerPresets = [
         defaultModel: "",
     },
     {
+        name: "Google Gemini",
+        baseUrl: "",
+        placeholder: "managed-via-service-account",
+        defaultModel: "gemini-2.5-flash",
+    },
+    {
         name: "Custom",
         baseUrl: "",
         placeholder: "Your API key",
         defaultModel: "",
     },
 ];
+
+function normalizeProviderPresetName(provider: string): string {
+    const normalized = provider.trim().toLowerCase();
+    if (normalized === "google" || normalized === "google speech") return "Google Gemini";
+    if (normalized === "openai") return "OpenAI";
+    if (normalized === "groq") return "Groq";
+    if (normalized === "together ai" || normalized === "together") {
+        return "Together AI";
+    }
+    if (normalized === "openrouter") return "OpenRouter";
+    if (normalized === "lm studio") return "LM Studio";
+    if (normalized === "ollama") return "Ollama";
+    if (normalized === "custom") return "Custom";
+    return provider;
+}
 
 export function EditProviderDialog({
     open,
@@ -98,7 +119,7 @@ export function EditProviderDialog({
 
     useEffect(() => {
         if (open && provider) {
-            setProviderName(provider.provider);
+            setProviderName(normalizeProviderPresetName(provider.provider));
             setBaseUrl(provider.baseUrl || "");
             setDefaultModel(provider.defaultModel || "");
             setIsDefaultTranscription(provider.isDefaultTranscription);

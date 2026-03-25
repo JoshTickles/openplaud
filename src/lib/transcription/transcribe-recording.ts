@@ -16,9 +16,36 @@ import {
     inferProviderType,
 } from "./providers";
 
+function isGoogleInlineAudioLimitError(error: unknown): boolean {
+    if (!(error instanceof Error)) return false;
+    const message = error.message.toLowerCase();
+    return (
+        message.includes("inline audio exceeds duration limit") ||
+        message.includes("request payload size exceeds the limit") ||
+        message.includes("please use a gcs uri")
+    );
+}
+
+function fallbackPriority(providerName: string, baseUrl?: string | null): number {
+    const providerType = inferProviderType(providerName, baseUrl);
+    switch (providerType) {
+        case "litellm":
+            return 0;
+        case "azure":
+            return 1;
+        case "openai":
+            return 2;
+        case "local":
+            return 3;
+        default:
+            return 9;
+    }
+}
+
 export async function transcribeRecording(
     userId: string,
     recordingId: string,
+    options?: { force?: boolean },
 ): Promise<{ success: boolean; error?: string }> {
     try {
         const [recording] = await db
@@ -42,7 +69,7 @@ export async function transcribeRecording(
             .where(eq(transcriptions.recordingId, recordingId))
             .limit(1);
 
-        if (existingTranscription?.text) {
+        if (existingTranscription?.text && !options?.force) {
             return { success: true };
         }
 
@@ -71,6 +98,7 @@ export async function transcribeRecording(
             settings?.defaultTranscriptionLanguage || undefined;
         const quality = settings?.transcriptionQuality || "balanced";
         const speakerDiarization = settings?.speakerDiarization ?? false;
+        const diarizationSpeakers = settings?.diarizationSpeakers ?? 2;
         const autoGenerateTitle = settings?.autoGenerateTitle ?? true;
         const syncTitleToPlaud = settings?.syncTitleToPlaud ?? false;
 
@@ -92,17 +120,75 @@ export async function transcribeRecording(
         const storage = await createUserStorageProvider(userId);
         const audioBuffer = await storage.downloadFile(recording.storagePath);
 
-        const result = await provider.transcribe(
-            audioBuffer,
-            recording.filename,
-            {
-                language: defaultLanguage,
-                model,
-                responseFormat: speakerDiarization
-                    ? "diarized_json"
-                    : "verbose_json",
-            },
-        );
+        const transcriptionOptions = {
+            language: defaultLanguage,
+            model,
+            responseFormat: speakerDiarization
+                ? "diarized_json"
+                : "verbose_json",
+            diarizationSpeakers,
+        } as const;
+
+        let effectiveCredentials = credentials;
+        let result;
+
+        try {
+            result = await provider.transcribe(
+                audioBuffer,
+                recording.filename,
+                transcriptionOptions,
+            );
+        } catch (error) {
+            if (
+                providerType === "google" &&
+                isGoogleInlineAudioLimitError(error)
+            ) {
+                const fallbackCredentials = await db
+                    .select()
+                    .from(apiCredentials)
+                    .where(eq(apiCredentials.userId, userId));
+
+                const fallback = fallbackCredentials
+                    .filter((cred) => cred.id !== credentials.id)
+                    .filter(
+                        (cred) =>
+                            inferProviderType(cred.provider, cred.baseUrl) !==
+                            "google",
+                    )
+                    .sort(
+                        (a, b) =>
+                            fallbackPriority(a.provider, a.baseUrl) -
+                            fallbackPriority(b.provider, b.baseUrl),
+                    )[0];
+
+                if (!fallback) {
+                    throw error;
+                }
+
+                const fallbackProvider = createTranscriptionProvider(
+                    inferProviderType(fallback.provider, fallback.baseUrl),
+                    decrypt(fallback.apiKey),
+                    fallback.baseUrl || undefined,
+                );
+
+                result = await fallbackProvider.transcribe(
+                    audioBuffer,
+                    recording.filename,
+                    {
+                        ...transcriptionOptions,
+                        model: fallback.defaultModel || "whisper-1",
+                    },
+                );
+
+                effectiveCredentials = fallback;
+                console.warn(
+                    "Google transcription hit inline-audio limits; used fallback provider:",
+                    fallback.provider,
+                );
+            } else {
+                throw error;
+            }
+        }
 
         const transcriptionText = result.text;
         const detectedLanguage = result.detectedLanguage;
@@ -114,8 +200,8 @@ export async function transcribeRecording(
                     text: transcriptionText,
                     detectedLanguage,
                     transcriptionType: "server",
-                    provider: credentials.provider,
-                    model: credentials.defaultModel || "whisper-1",
+                    provider: effectiveCredentials.provider,
+                    model: effectiveCredentials.defaultModel || "whisper-1",
                 })
                 .where(eq(transcriptions.id, existingTranscription.id));
         } else {
@@ -125,8 +211,8 @@ export async function transcribeRecording(
                 text: transcriptionText,
                 detectedLanguage,
                 transcriptionType: "server",
-                provider: credentials.provider,
-                model: credentials.defaultModel || "whisper-1",
+                provider: effectiveCredentials.provider,
+                model: effectiveCredentials.defaultModel || "whisper-1",
             });
         }
 

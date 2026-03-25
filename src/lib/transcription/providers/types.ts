@@ -7,6 +7,7 @@ export interface TranscriptionOptions {
     language?: string;
     model: string;
     responseFormat?: string;
+    diarizationSpeakers?: number;
 }
 
 export interface TranscriptionProvider {
@@ -17,4 +18,4 @@ export interface TranscriptionProvider {
     ): Promise<TranscriptionResult>;
 }
 
-export type ProviderType = "openai" | "azure" | "litellm" | "local";
+export type ProviderType = "openai" | "azure" | "litellm" | "local" | "google";
