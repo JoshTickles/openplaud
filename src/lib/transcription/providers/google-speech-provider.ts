@@ -49,7 +49,7 @@ function buildPrompt(useDiarization: boolean, _speakerCount: number, language?: 
  * Ensure exactly one blank line between each "Speaker N:" turn,
  * regardless of how Gemini formatted the raw output.
  */
-function ensureSpeakerBlankLines(text: string): string {
+export function ensureSpeakerBlankLines(text: string): string {
     const lines = text.split("\n");
     const result: string[] = [];
 

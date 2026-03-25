@@ -1,5 +1,6 @@
 # Changelog
 
+- [Added]: Comprehensive test coverage for new features — 75 new tests across 4 files: ensureSpeakerBlankLines (11), Obsidian formatter/vault path/speaker map/YAML escape (32), tags API validation (18), speaker-map API validation (14); total suite now 137 tests (josh, 2026-03-25)
 - [Fixed]: Resolved all merge conflict markers left from prior upstream merge attempt — cleaned 6 files including transcribe-recording.ts, sync-recordings.ts, servers.ts, Dockerfile, _journal.json, transcription.test.ts (josh, 2026-03-25)
 - [Changed]: Reviewed upstream 49 commits; all useful features already present in fork — no merge needed, updated provider-factory test for mandatory GOOGLE_PROJECT_ID (josh, 2026-03-25)
 - [Fixed]: Removed all hardcoded secrets, internal IPs, and infrastructure details from code and git history using git-filter-repo; all sensitive values now come from environment variables only (josh, 2026-03-25)
