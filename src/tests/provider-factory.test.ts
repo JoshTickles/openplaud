@@ -59,9 +59,14 @@ describe("createTranscriptionProvider", () => {
     });
 
     it("creates a Google Speech provider", () => {
-        const provider = createTranscriptionProvider("google", "api-key");
-        expect(provider).toBeDefined();
-        expect(typeof provider.transcribe).toBe("function");
+        process.env.GOOGLE_PROJECT_ID = "test-project";
+        try {
+            const provider = createTranscriptionProvider("google", "api-key");
+            expect(provider).toBeDefined();
+            expect(typeof provider.transcribe).toBe("function");
+        } finally {
+            delete process.env.GOOGLE_PROJECT_ID;
+        }
     });
 
     it("falls back to OpenAI for unknown provider types", () => {
