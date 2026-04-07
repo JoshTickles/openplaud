@@ -1,4 +1,4 @@
-import { VertexAI } from "@google-cloud/vertexai";
+import { GoogleGenAI } from "@google/genai";
 import { detectAudioFormat } from "@/lib/audio/detect-format";
 import type {
     TranscriptionOptions,
@@ -6,7 +6,9 @@ import type {
     TranscriptionResult,
 } from "./types";
 
-const DEFAULT_MODEL = "gemini-2.5-flash";
+const DEFAULT_MODEL = "gemini-3-flash-preview";
+/** Gemini 3 models require the 'global' location on Vertex AI */
+const GEMINI3_LOCATION = "global";
 const DEFAULT_SPEAKER_COUNT = 2;
 
 /**
@@ -175,14 +177,22 @@ export function truncateRepetitionLoop(text: string): { text: string; wasTruncat
 
 export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider {
     private readonly projectId: string;
-    private readonly location: string;
+    private readonly defaultLocation: string;
 
     constructor(_apiKey: string, _baseURL?: string) {
         this.projectId = process.env.GOOGLE_PROJECT_ID || "";
         if (!this.projectId) {
             throw new Error("GOOGLE_PROJECT_ID environment variable is required for Gemini provider");
         }
-        this.location = process.env.GOOGLE_LOCATION || "us-central1";
+        this.defaultLocation = process.env.GOOGLE_LOCATION || "us-central1";
+    }
+
+    /** Gemini 3+ models must use 'global' location on Vertex AI */
+    private locationForModel(modelId: string): string {
+        if (modelId.startsWith("gemini-3")) {
+            return GEMINI3_LOCATION;
+        }
+        return this.defaultLocation;
     }
 
     async transcribe(
@@ -197,28 +207,19 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
             options.diarizationSpeakers ?? DEFAULT_SPEAKER_COUNT,
         );
 
-        const vertexAI = new VertexAI({
-            project: this.projectId,
-            location: this.location,
-        });
-
         const modelId = this.resolveModel(options.model);
+        const location = this.locationForModel(modelId);
 
-        const model = vertexAI.getGenerativeModel({
-            model: modelId,
-            generationConfig: {
-                temperature: 0.15,
-                maxOutputTokens: 65536,
-                frequencyPenalty: 0.6,
-            },
-        }, {
-            // Long recordings (30min+) need generous timeout for Gemini processing
-            timeout: 600_000, // 10 minutes
+        const ai = new GoogleGenAI({
+            vertexai: true,
+            project: this.projectId,
+            location,
         });
 
         const prompt = buildPrompt(useDiarization, speakerCount, options.language);
 
-        const response = await model.generateContent({
+        const response = await ai.models.generateContent({
+            model: modelId,
             contents: [
                 {
                     role: "user",
@@ -233,13 +234,18 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
                     ],
                 },
             ],
+            config: {
+                temperature: 0.15,
+                maxOutputTokens: 65536,
+                frequencyPenalty: 0.6,
+                httpOptions: {
+                    // Long recordings (30min+) need generous timeout for Gemini processing
+                    timeout: 600_000, // 10 minutes
+                },
+            },
         });
 
-        const raw =
-            response.response.candidates?.[0]?.content?.parts
-                ?.map((part) => part.text ?? "")
-                .join("")
-                .trim() ?? "";
+        const raw = response.text?.trim() ?? "";
 
         // Safety net: detect and strip degenerate repetition loops
         const { text: cleaned, wasTruncated } = truncateRepetitionLoop(raw);
