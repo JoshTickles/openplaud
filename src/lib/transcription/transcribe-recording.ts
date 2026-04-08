@@ -47,6 +47,7 @@ export async function transcribeRecording(
     recordingId: string,
     options?: { force?: boolean },
 ): Promise<{ success: boolean; error?: string }> {
+    let audioTempPath: string | undefined;
     try {
         const [recording] = await db
             .select()
@@ -120,6 +121,15 @@ export async function transcribeRecording(
         const storage = await createUserStorageProvider(userId);
         const audioBuffer = await storage.downloadFile(recording.storagePath);
 
+        // Write audio to a temp file for diarization pre-pass
+        if (speakerDiarization && providerType === "google") {
+            const { writeFile } = await import("node:fs/promises");
+            const { tmpdir } = await import("node:os");
+            const { join } = await import("node:path");
+            audioTempPath = join(tmpdir(), `openplaud-diarize-${recording.id}.audio`);
+            await writeFile(audioTempPath, audioBuffer);
+        }
+
         const transcriptionOptions = {
             language: defaultLanguage,
             model,
@@ -127,6 +137,7 @@ export async function transcribeRecording(
                 ? "diarized_json"
                 : "verbose_json",
             diarizationSpeakers,
+            audioPath: audioTempPath,
         } as const;
 
         let effectiveCredentials = credentials;
@@ -271,5 +282,12 @@ export async function transcribeRecording(
             error:
                 error instanceof Error ? error.message : "Transcription failed",
         };
+    } finally {
+        // Clean up temp audio file used for diarization
+        if (audioTempPath) {
+            import("node:fs/promises")
+                .then(({ unlink }) => unlink(audioTempPath!).catch(() => {}))
+                .catch(() => {});
+        }
     }
 }

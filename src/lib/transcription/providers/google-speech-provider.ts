@@ -1,5 +1,11 @@
 import { GoogleGenAI } from "@google/genai";
 import { detectAudioFormat } from "@/lib/audio/detect-format";
+import {
+    isDiarizationAvailable,
+    runDiarization,
+    formatDiarizeHint,
+    type DiarizeResult,
+} from "@/lib/transcription/diarize";
 import type {
     TranscriptionOptions,
     TranscriptionProvider,
@@ -37,13 +43,36 @@ function mimeTypeForGemini(contentType: string): string {
     return map[contentType] ?? "audio/mp3";
 }
 
-function buildPrompt(useDiarization: boolean, _speakerCount: number, language?: string): string {
+function buildPrompt(
+    useDiarization: boolean,
+    _speakerCount: number,
+    language?: string,
+    diarizeHint?: string,
+): string {
     const langHint = language ? ` The audio is in ${language}.` : "";
 
     if (useDiarization) {
-        return [
+        const baseInstructions = [
             "Transcribe this audio recording accurately and completely.",
-            "Identify and label every distinct speaker consistently as Speaker 1, Speaker 2, Speaker 3, etc. Detect ALL speakers present — do NOT merge or combine different speakers.",
+        ];
+
+        if (diarizeHint) {
+            // Two-pass mode: we have voice-analysis speaker segments
+            baseInstructions.push(
+                "",
+                diarizeHint,
+                "",
+                "Use the speaker timing above to label speakers. When a speaker change occurs",
+                "at a boundary listed above, start a new speaker turn with the correct label.",
+            );
+        } else {
+            // Fallback: no diarization data, let Gemini guess
+            baseInstructions.push(
+                "Identify and label every distinct speaker consistently as Speaker 1, Speaker 2, Speaker 3, etc. Detect ALL speakers present — do NOT merge or combine different speakers.",
+            );
+        }
+
+        baseInstructions.push(
             "",
             "CRITICAL FORMATTING RULES (you MUST follow these):",
             "- Each speaker turn MUST start on its own line as: Speaker N: <text>",
@@ -54,7 +83,9 @@ function buildPrompt(useDiarization: boolean, _speakerCount: number, language?: 
             "Do NOT include timestamps, commentary, or analysis — only the verbatim transcription with speaker labels.",
             "IMPORTANT: If you notice yourself repeating the same text, STOP immediately. Never output the same phrase more than twice in a row.",
             `Maintain the original language of the recording.${langHint}`,
-        ].join("\n");
+        );
+
+        return baseInstructions.join("\n");
     }
 
     return [
@@ -207,6 +238,13 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
             options.diarizationSpeakers ?? DEFAULT_SPEAKER_COUNT,
         );
 
+        // --- Pass 1: Voice-fingerprint diarization (if available) ---
+        let diarizeHint: string | undefined;
+        if (useDiarization && options.audioPath) {
+            diarizeHint = await this.tryDiarize(options.audioPath);
+        }
+
+        // --- Pass 2: Gemini transcription (with diarization hints if available) ---
         const modelId = this.resolveModel(options.model);
         const location = this.locationForModel(modelId);
 
@@ -216,7 +254,7 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
             location,
         });
 
-        const prompt = buildPrompt(useDiarization, speakerCount, options.language);
+        const prompt = buildPrompt(useDiarization, speakerCount, options.language, diarizeHint);
 
         const response = await ai.models.generateContent({
             model: modelId,
@@ -259,6 +297,35 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
         const text = useDiarization ? ensureSpeakerBlankLines(cleaned) : cleaned;
 
         return { text, detectedLanguage: null };
+    }
+
+    /**
+     * Attempt to run voice-fingerprint diarization.
+     * Returns a formatted hint string for the Gemini prompt, or undefined
+     * if diarization is unavailable or fails.
+     */
+    private async tryDiarize(audioPath: string): Promise<string | undefined> {
+        try {
+            const available = await isDiarizationAvailable();
+            if (!available) {
+                console.log("[Gemini] Diarization runtime not available, falling back to Gemini-only speaker detection");
+                return undefined;
+            }
+
+            console.log(`[Gemini] Running voice-fingerprint diarization on ${audioPath}...`);
+            const start = Date.now();
+            const result = await runDiarization(audioPath);
+            const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+            console.log(
+                `[Gemini] Diarization complete in ${elapsed}s: ` +
+                `${result.num_speakers} speakers, ${result.segments.length} segments`,
+            );
+
+            return formatDiarizeHint(result);
+        } catch (err) {
+            console.warn("[Gemini] Diarization failed, falling back to Gemini-only:", err);
+            return undefined;
+        }
     }
 
     private resolveModel(model: string): string {

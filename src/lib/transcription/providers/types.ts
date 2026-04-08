@@ -8,6 +8,8 @@ export interface TranscriptionOptions {
     model: string;
     responseFormat?: string;
     diarizationSpeakers?: number;
+    /** Absolute path to the audio file on disk (for diarization pre-pass) */
+    audioPath?: string;
 }
 
 export interface TranscriptionProvider {
