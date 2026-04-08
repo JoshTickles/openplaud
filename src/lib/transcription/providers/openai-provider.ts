@@ -38,7 +38,10 @@ export class OpenAITranscriptionProvider implements TranscriptionProvider {
             options.responseFormat === "diarized_json" ||
             model.includes("diarize") ||
             model.includes("diarized");
-        const isGpt4o = model.startsWith("gpt-4o");
+        // Whisper models support verbose_json; non-Whisper models
+        // (chat-based audio, etc.) should use plain json.
+        const isWhisperModel =
+            model.includes("whisper") || model.includes("chirp");
 
         const responseFormat = options.responseFormat
             ? (options.responseFormat as
@@ -47,9 +50,9 @@ export class OpenAITranscriptionProvider implements TranscriptionProvider {
                   | "verbose_json")
             : isDiarize
             ? ("diarized_json" as const)
-            : isGpt4o
-              ? ("json" as const)
-              : ("verbose_json" as const);
+            : isWhisperModel
+              ? ("verbose_json" as const)
+              : ("json" as const);
 
         const transcription = await this.openai.audio.transcriptions.create({
             file: audioFile,
