@@ -206,7 +206,7 @@ export const aiEnhancements = pgTable("ai_enhancements", {
     actionItems: jsonb("action_items"), // Array of action items
     keyPoints: jsonb("key_points"), // Array of key points
     provider: varchar("provider", { length: 100 }).notNull(), // e.g., 'openai', 'anthropic-via-openrouter'
-    model: varchar("model", { length: 100 }).notNull(), // e.g., 'gpt-4o', 'claude-3.5-sonnet'
+    model: varchar("model", { length: 100 }).notNull(), // e.g., 'whisper-1', 'gemini-3-flash-preview'
     createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

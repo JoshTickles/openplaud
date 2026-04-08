@@ -55,3 +55,6 @@ next-env.d.ts
 # local cloud credentials
 *service-account*.json
 *credentials*.json
+
+# Pi coding agent
+.pi/

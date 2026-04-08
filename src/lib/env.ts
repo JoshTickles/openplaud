@@ -81,12 +81,15 @@ function validateEnv(): Env {
         });
 
         // In runtime (dev/prod servers), we require a strong encryption key.
-        // During `next build` (phase-production-build) we skip this so that
-        // server-only config doesn't break the frontend build.
+        // During `next build` (phase-production-build) or test runs we skip
+        // this so that server-only config doesn't break the frontend build
+        // or unit tests that mock env values.
         const isProductionBuildPhase =
             process.env.NEXT_PHASE === "phase-production-build";
+        const isTestEnv =
+            !!process.env.VITEST || process.env.NODE_ENV === "test";
 
-        if (!isProductionBuildPhase) {
+        if (!isProductionBuildPhase && !isTestEnv) {
             // Core server-side envs must be present when the server actually runs.
             if (!parsed.DATABASE_URL) {
                 throw new Error(

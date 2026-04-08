@@ -4,7 +4,9 @@ import { env } from "@/lib/env";
 import { isBuild } from "@/lib/utils";
 import * as schema from "./schema";
 
-if (!env.DATABASE_URL && !isBuild) {
+const isTestEnv = !!process.env.VITEST || process.env.NODE_ENV === "test";
+
+if (!env.DATABASE_URL && !isBuild && !isTestEnv) {
     throw new Error(
         "DATABASE_URL must be set in non-build runtime (dev/prod server)",
     );

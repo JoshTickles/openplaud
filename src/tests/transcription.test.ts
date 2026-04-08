@@ -8,8 +8,11 @@ vi.mock("@/db", () => ({
     },
 }));
 
-vi.mock("@/lib/encryption", () => ({
-    decrypt: vi.fn().mockReturnValue("fake-api-key"),
+vi.mock("@/lib/env", () => ({
+    env: {
+        ENCRYPTION_KEY:
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    },
 }));
 
 vi.mock("@/lib/storage/factory", () => ({
@@ -19,22 +22,23 @@ vi.mock("@/lib/storage/factory", () => ({
 }));
 
 vi.mock("openai", () => {
-    const MockOpenAI = vi.fn(function (this: unknown) {
-        Object.assign(this as object, {
-            audio: {
-                transcriptions: {
-                    create: vi.fn(),
-                },
+    // Return object explicitly — bun's vi.fn doesn't propagate `this`
+    // correctly for constructor calls.
+    const MockOpenAI = vi.fn(() => ({
+        audio: {
+            transcriptions: {
+                // Default: reject so the "API call fails" test works.
+                // Earlier tests short-circuit before reaching this mock.
+                create: vi.fn().mockRejectedValue(new Error("API Error")),
             },
-        });
-    });
+        },
+    }));
     const toFile = vi.fn(async (buffer: unknown, name: string, opts: unknown) =>
         new File([buffer as BlobPart], name, opts as FilePropertyBag),
     );
     return { OpenAI: MockOpenAI, toFile };
 });
 
-import { OpenAI } from "openai";
 import { db } from "@/db";
 import { transcribeRecording } from "@/lib/transcription/transcribe-recording";
 
@@ -132,14 +136,6 @@ describe("Transcription", () => {
         });
 
         it("should return error when API call fails", async () => {
-            const mockCreate = vi
-                .fn()
-                .mockRejectedValue(new Error("API Error"));
-            (OpenAI as unknown as Mock).mockImplementation(function (this: unknown) {
-                Object.assign(this as object, {
-                    audio: { transcriptions: { create: mockCreate } },
-                });
-            });
 
             (db.select as Mock)
                 .mockReturnValueOnce({
@@ -169,7 +165,7 @@ describe("Transcription", () => {
                                 {
                                     id: "creds-1",
                                     provider: "openai",
-                                    apiKey: "encrypted-key",
+                                    apiKey: "e33720d13630d82e0a779e12eae27440:0639afbd99d5585f8096086114e351f7:122f3fce3b4a83afaab5937a",
                                     defaultModel: "whisper-1",
                                 },
                             ]),

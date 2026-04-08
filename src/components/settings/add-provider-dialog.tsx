@@ -208,7 +208,7 @@ export function AddProviderDialog({
                         <Input
                             id="defaultModel"
                             type="text"
-                            placeholder="whisper-1, gpt-4o, etc."
+                            placeholder="e.g. whisper-1, gemini-3-flash-preview"
                             value={defaultModel}
                             onChange={(e) => setDefaultModel(e.target.value)}
                             disabled={isLoading}
