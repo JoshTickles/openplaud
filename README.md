@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🎙️ OpenPlaud
+# 🎙️ OpenPlaud (JoshTickles Fork)
 
 **Self-hosted AI transcription interface for Plaud Note devices**
 
@@ -11,9 +11,62 @@
 [![TypeScript](https://img.shields.io/badge/typescript-5.0-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Next.js](https://img.shields.io/badge/next.js-16-000000?logo=next.js&logoColor=white)](https://nextjs.org/)
 
-[Quick Start](#-quick-start) • [Features](#-features) • [Configuration](#-configuration-guide) • [Contributing](#-contributing) • [License](#-license)
+[Fork Features](#-fork-features) • [Quick Start](#-quick-start) • [Features](#-features) • [Configuration](#-configuration-guide) • [Contributing](#-contributing) • [License](#-license)
 
 </div>
+
+---
+
+## 🔀 Fork Features
+
+> This is a personal fork of [openplaud/openplaud](https://github.com/openplaud/openplaud) with additional features for multi-provider transcription, speaker diarization, and personal knowledge management workflows.
+
+### Gemini Speaker Diarization
+- **Google Gemini as a transcription provider** — sends audio as multimodal input via Vertex AI, no GCS upload or file size limits
+- **Two-pass diarization with voice fingerprinting** — first pass transcribes with speaker labels, second pass consolidates speakers using voice characteristics
+- **Automatic repetition loop detection** — catches and truncates Gemini output loops (both exact and near-identical patterns) before saving
+- **Auto-fallback** — if Gemini fails, falls back to the next configured provider
+
+### Multi-Provider Transcription
+- **Provider abstraction layer** — factory pattern supporting OpenAI, Azure Whisper, LiteLLM proxy, and Google Gemini
+- **Audio format detection** — magic-byte detection for Opus, MP3, WAV, FLAC (Plaud stores Opus files with `.mp3` extensions)
+- **Force re-transcribe** — re-run transcription on any recording with a single click
+
+### Speaker Name Mapping
+- **Inline speaker name editor** — collapsible UI with color-coded speakers and name inputs
+- **Display-time substitution** — raw transcription text is never modified; names are applied in the UI and exports
+- **Stored as JSONB** — `speaker_map` column on the `transcriptions` table
+
+### Recording Tags
+- **User-defined tags** with custom colors — create, rename, recolor, and delete from Settings
+- **Tag assignment popover** on each recording in the dashboard
+- **Filter by tag** — tag pills in the recording list for quick filtering
+- **Included in Obsidian exports** as frontmatter
+
+### Obsidian Integration
+- **One-way push to Obsidian** via the [Local REST API](https://github.com/coddingtonbear/obsidian-local-rest-api) plugin
+- **Markdown export** with YAML frontmatter, speaker names applied, tags, summary, key points, and action items
+- **Auto-push after speaker name save** (silent) and manual "Push to Obsidian" button on dashboard
+- **Configurable** in Settings — API URL, API key, vault path, test connection
+
+### AI Enhancements
+- **Summary, action items, and key points** generated via LiteLLM chat model
+- **AI title generation** using the same provider routing
+- **Configurable chat model** via `ENHANCEMENT_CHAT_MODEL` env var
+
+### Recording Management
+- **Rename with Plaud cloud sync** — renames locally and pushes the title back to Plaud
+- **Upstream deletion detection** — flags recordings deleted from Plaud as "Local only" instead of auto-deleting
+- **Recording delete** — removes recording, audio, and all associated data
+- **APAC server support** — `api-apse1.plaud.ai` for Asia-Pacific Plaud accounts
+
+### Dashboard
+- **All actions centralized** — rename, re-transcribe, tag, delete, speaker names, Obsidian push, all from the main dashboard
+- **Optimistic UI updates** — mutations reflect instantly without page refresh
+
+---
+
+> **Upstream:** [openplaud/openplaud](https://github.com/openplaud/openplaud) — everything below is from the original README.
 
 ---
 
