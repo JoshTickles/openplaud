@@ -83,7 +83,17 @@ export async function runDiarization(
                 }
 
                 try {
-                    const result = JSON.parse(stdout) as DiarizeResult;
+                    // The Python script may emit download progress or
+                    // other noise before the JSON object. Find the
+                    // first '{' to locate the actual JSON payload.
+                    const jsonStart = stdout.indexOf("{");
+                    const jsonStr = jsonStart >= 0 ? stdout.slice(jsonStart) : stdout;
+                    if (jsonStart > 0) {
+                        console.warn(
+                            `[Diarize] Stripped ${jsonStart} bytes of non-JSON prefix from stdout`,
+                        );
+                    }
+                    const result = JSON.parse(jsonStr) as DiarizeResult;
                     console.log(
                         `[Diarize] Found ${result.num_speakers} speakers ` +
                         `in ${result.audio_duration.toFixed(0)}s audio ` +

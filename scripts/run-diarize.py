@@ -38,6 +38,11 @@ def main() -> None:
     parser.add_argument("--num-speakers", type=int, default=None)
     args = parser.parse_args()
 
+    # Redirect stdout to stderr during import and processing so that
+    # model-download progress bars don't corrupt our JSON output.
+    real_stdout = sys.stdout
+    sys.stdout = sys.stderr
+
     # Import here so arg parsing errors are fast
     from diarize import diarize
 
@@ -51,6 +56,9 @@ def main() -> None:
             kwargs["max_speakers"] = args.max_speakers
 
     result = diarize(args.audio_path, **kwargs)
+
+    # Restore stdout for JSON output only
+    sys.stdout = real_stdout
 
     output = {
         "num_speakers": result.num_speakers,
