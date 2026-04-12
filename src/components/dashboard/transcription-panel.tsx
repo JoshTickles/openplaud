@@ -1,7 +1,8 @@
 "use client";
 
-import { FileText, Languages, RefreshCw, Sparkles } from "lucide-react";
-import { useMemo } from "react";
+import { CloudDownload, FileText, Languages, RefreshCw, Sparkles } from "lucide-react";
+import { useMemo, useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { Recording } from "@/types/recording";
@@ -48,6 +49,8 @@ export function TranscriptionPanel({
     onRetranscribe,
     onSpeakerMapChanged,
 }: TranscriptionPanelProps) {
+    const [isPullingPlaud, setIsPullingPlaud] = useState(false);
+
     const displayText = useMemo(
         () =>
             transcription?.text
@@ -55,6 +58,31 @@ export function TranscriptionPanel({
                 : "",
         [transcription?.text, transcription?.speakerMap],
     );
+
+    const isLongRecording = recording.duration > 60 * 60 * 1000;
+    const hasPlaudFile = !!recording.plaudFileId;
+    const showPlaudOption = isLongRecording && hasPlaudFile;
+
+    const handlePullFromPlaud = async () => {
+        setIsPullingPlaud(true);
+        try {
+            const response = await fetch(
+                `/api/recordings/${recording.id}/transcribe-plaud`,
+                { method: "POST" },
+            );
+            if (!response.ok) {
+                const data = await response.json();
+                toast.error(data.error || "Failed to pull from Plaud");
+                return;
+            }
+            toast.success("Transcript pulled from Plaud");
+            window.location.reload();
+        } catch {
+            toast.error("Failed to pull transcript from Plaud");
+        } finally {
+            setIsPullingPlaud(false);
+        }
+    };
 
     return (
         <Card>
@@ -89,6 +117,28 @@ export function TranscriptionPanel({
                         )}
                     </div>
                 </div>
+                {showPlaudOption && !isTranscribing && !isPullingPlaud && (
+                    <div className="mt-3 flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 px-4 py-3">
+                        <CloudDownload className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0" />
+                        <p className="text-sm text-blue-800 dark:text-blue-300 flex-1">
+                            This recording seems long — pull transcript from Plaud?
+                        </p>
+                        <Button
+                            onClick={handlePullFromPlaud}
+                            size="sm"
+                            variant="outline"
+                            className="shrink-0"
+                        >
+                            Pull from Plaud
+                        </Button>
+                    </div>
+                )}
+                {isPullingPlaud && (
+                    <div className="mt-3 flex items-center gap-3 rounded-lg border px-4 py-3">
+                        <div className="animate-spin w-4 h-4 border-2 border-primary border-t-transparent rounded-full" />
+                        <p className="text-sm text-muted-foreground">Pulling transcript from Plaud...</p>
+                    </div>
+                )}
             </CardHeader>
             <CardContent>
                 {isTranscribing ? (

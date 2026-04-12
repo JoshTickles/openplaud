@@ -1,6 +1,8 @@
 export interface TranscriptionResult {
     text: string;
     detectedLanguage: string | null;
+    /** Set when audio was downsampled before upload due to file size. */
+    compressionWarning?: string;
 }
 
 export interface TranscriptionOptions {

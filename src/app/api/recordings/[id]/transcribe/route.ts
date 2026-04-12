@@ -77,6 +77,7 @@ export async function POST(
         return NextResponse.json({
             transcription: savedTranscription.text,
             detectedLanguage: savedTranscription.detectedLanguage ?? null,
+            compressionWarning: result.compressionWarning ?? null,
         });
     } catch (error) {
         console.error("Error transcribing:", error);

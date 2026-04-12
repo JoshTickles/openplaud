@@ -206,6 +206,53 @@ export function truncateRepetitionLoop(text: string): { text: string; wasTruncat
     return { text, wasTruncated: false };
 }
 
+/**
+ * Vertex AI rejects inline audio payloads beyond roughly 20 MB.  For files
+ * above this threshold we re-encode with ffmpeg to a compact 16 kHz mono MP3
+ * before sending.  Speech-recognition quality is not meaningfully affected at
+ * the bitrates used here.
+ */
+const LARGE_AUDIO_THRESHOLD_BYTES = 20 * 1024 * 1024; // 20 MB
+
+async function compressAudioIfNeeded(
+    audioBuffer: Buffer,
+): Promise<{ buffer: Buffer; mimeType: string; wasCompressed: boolean }> {
+    if (audioBuffer.length <= LARGE_AUDIO_THRESHOLD_BYTES) {
+        return { buffer: audioBuffer, mimeType: detectAudioFormat(audioBuffer).contentType, wasCompressed: false };
+    }
+
+    const { execFile } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    const { writeFile, readFile, unlink } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const execFileAsync = promisify(execFile);
+
+    const tag = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const inputPath = join(tmpdir(), `openplaud-ffmpeg-in-${tag}.mp3`);
+    const outputPath = join(tmpdir(), `openplaud-ffmpeg-out-${tag}.mp3`);
+
+    try {
+        await writeFile(inputPath, audioBuffer);
+        await execFileAsync(
+            "ffmpeg",
+            ["-i", inputPath, "-ar", "16000", "-ac", "1", "-b:a", "16k", "-y", outputPath],
+            { timeout: 180_000 }, // 3 minutes max
+        );
+        const compressed = await readFile(outputPath);
+        console.log(
+            `[Gemini] Audio compressed for large recording: ` +
+            `${(audioBuffer.length / 1024 / 1024).toFixed(1)} MB → ${(compressed.length / 1024 / 1024).toFixed(1)} MB`,
+        );
+        return { buffer: compressed, mimeType: "audio/mp3", wasCompressed: true };
+    } finally {
+        await Promise.all([
+            unlink(inputPath).catch(() => {}),
+            unlink(outputPath).catch(() => {}),
+        ]);
+    }
+}
+
 export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider {
     private readonly projectId: string;
     private readonly defaultLocation: string;
@@ -231,80 +278,66 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
         _filename: string,
         options: TranscriptionOptions,
     ): Promise<TranscriptionResult> {
-        const format = detectAudioFormat(audioBuffer);
-        const useDiarization = options.responseFormat === "diarized_json";
-        const speakerCount = Math.max(
-            1,
-            options.diarizationSpeakers ?? DEFAULT_SPEAKER_COUNT,
-        );
+        // Compress oversized files so Vertex AI accepts them as inline data.
+        // Diarization still uses the original on-disk file (options.audioPath).
+        const { buffer: audioToSend, mimeType: effectiveMimeType, wasCompressed } =
+            await compressAudioIfNeeded(audioBuffer);
 
-        // --- Pass 1: Voice-fingerprint diarization (if available) ---
-        let diarizeHint: string | undefined;
+        const useDiarization = options.responseFormat === "diarized_json";
+
+        // --- Pass 1: Voice-fingerprint diarization on the full file ---
+        let diarizeResult: DiarizeResult | undefined;
         if (useDiarization && options.audioPath) {
-            diarizeHint = await this.tryDiarize(options.audioPath);
+            diarizeResult = await this.tryDiarizeRaw(options.audioPath);
         }
 
-        // --- Pass 2: Gemini transcription (with diarization hints if available) ---
         const modelId = this.resolveModel(options.model);
         const location = this.locationForModel(modelId);
+        const ai = new GoogleGenAI({ vertexai: true, project: this.projectId, location });
 
-        const ai = new GoogleGenAI({
-            vertexai: true,
-            project: this.projectId,
-            location,
-        });
-
-        const prompt = buildPrompt(useDiarization, speakerCount, options.language, diarizeHint);
+        const diarizeHint = diarizeResult ? formatDiarizeHint(diarizeResult) : undefined;
+        const prompt = buildPrompt(
+            useDiarization,
+            options.diarizationSpeakers ?? DEFAULT_SPEAKER_COUNT,
+            options.language,
+            diarizeHint,
+        );
 
         const response = await ai.models.generateContent({
             model: modelId,
-            contents: [
-                {
-                    role: "user",
-                    parts: [
-                        {
-                            inlineData: {
-                                mimeType: mimeTypeForGemini(format.contentType),
-                                data: audioBuffer.toString("base64"),
-                            },
-                        },
-                        { text: prompt },
-                    ],
-                },
-            ],
+            contents: [{
+                role: "user",
+                parts: [
+                    { inlineData: { mimeType: mimeTypeForGemini(effectiveMimeType), data: audioToSend.toString("base64") } },
+                    { text: prompt },
+                ],
+            }],
             config: {
                 temperature: 0.15,
                 maxOutputTokens: 65536,
                 frequencyPenalty: 0.6,
-                httpOptions: {
-                    // Long recordings (30min+) need generous timeout for Gemini processing
-                    timeout: 600_000, // 10 minutes
-                },
+                httpOptions: { timeout: 1_800_000 },
             },
         });
 
         const raw = response.text?.trim() ?? "";
-
-        // Safety net: detect and strip degenerate repetition loops
         const { text: cleaned, wasTruncated } = truncateRepetitionLoop(raw);
         if (wasTruncated) {
-            console.warn(
-                `[Gemini] Repetition loop removed from transcription. ` +
-                `Original: ${raw.length} chars → Cleaned: ${cleaned.length} chars`,
-            );
+            console.warn(`[Gemini] Repetition loop removed. Original: ${raw.length} → ${cleaned.length} chars`);
         }
-
         const text = useDiarization ? ensureSpeakerBlankLines(cleaned) : cleaned;
-
-        return { text, detectedLanguage: null };
+        const compressionWarning = wasCompressed
+            ? `This recording was large (>${Math.round(LARGE_AUDIO_THRESHOLD_BYTES / 1024 / 1024)} MB) and was automatically compressed to 16 kHz mono before transcription. Accuracy should be fine for speech, but audio quality artefacts or overlapping voices may be less precisely rendered.`
+            : undefined;
+        return { text, detectedLanguage: null, compressionWarning };
     }
 
     /**
      * Attempt to run voice-fingerprint diarization.
-     * Returns a formatted hint string for the Gemini prompt, or undefined
-     * if diarization is unavailable or fails.
+     * Returns the raw DiarizeResult (for chunk-level hint filtering), or
+     * undefined if diarization is unavailable or fails.
      */
-    private async tryDiarize(audioPath: string): Promise<string | undefined> {
+    private async tryDiarizeRaw(audioPath: string): Promise<DiarizeResult | undefined> {
         try {
             const available = await isDiarizationAvailable();
             if (!available) {
@@ -320,8 +353,7 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
                 `[Gemini] Diarization complete in ${elapsed}s: ` +
                 `${result.num_speakers} speakers, ${result.segments.length} segments`,
             );
-
-            return formatDiarizeHint(result);
+            return result;
         } catch (err) {
             console.warn("[Gemini] Diarization failed, falling back to Gemini-only:", err);
             return undefined;

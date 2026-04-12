@@ -46,7 +46,7 @@ export async function transcribeRecording(
     userId: string,
     recordingId: string,
     options?: { force?: boolean },
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; compressionWarning?: string }> {
     let audioTempPath: string | undefined;
     try {
         const [recording] = await db
@@ -274,7 +274,7 @@ export async function transcribeRecording(
             }
         }
 
-        return { success: true };
+        return { success: true, compressionWarning: result.compressionWarning };
     } catch (error) {
         console.error("Error transcribing recording:", error);
         return {

@@ -1,6 +1,7 @@
 import type {
     PlaudApiError,
     PlaudDeviceListResponse,
+    PlaudFileListResponse,
     PlaudRecordingsResponse,
     PlaudTempUrlResponse,
 } from "@/types/plaud";
@@ -199,6 +200,44 @@ export class PlaudClient {
         } catch {
             return false;
         }
+    }
+
+    /**
+     * Fetch stored transcript text for a recording that has been transcribed on Plaud's servers.
+     * Returns formatted text ("Speaker N: text" blocks) or null if no transcript is stored.
+     * @param fileId - The recording file ID
+     */
+    async fetchTranscript(fileId: string): Promise<string | null> {
+        const response = await this.request<PlaudFileListResponse>("/file/list", {
+            method: "POST",
+            body: JSON.stringify([fileId]),
+        });
+
+        const file = response.data_file_list?.[0];
+        if (!file?.trans_result?.length) return null;
+
+        // Convert segments to "Speaker N: text" format with blank lines between turns.
+        // Merge consecutive segments from the same speaker into one turn.
+        const turns: { speaker: string; text: string }[] = [];
+        for (const seg of file.trans_result) {
+            const last = turns[turns.length - 1];
+            if (last && last.speaker === seg.speaker) {
+                last.text += " " + seg.content.trim();
+            } else {
+                turns.push({ speaker: seg.speaker, text: seg.content.trim() });
+            }
+        }
+
+        // Normalise speaker labels: if Plaud uses "SPEAKER_00" style, map to "Speaker 1"
+        const speakerOrder: string[] = [];
+        for (const { speaker } of turns) {
+            if (!speakerOrder.includes(speaker)) speakerOrder.push(speaker);
+        }
+        const isRaw = speakerOrder.some((s) => /^SPEAKER_\d+$/.test(s));
+        const labelFor = (s: string) =>
+            isRaw ? `Speaker ${speakerOrder.indexOf(s) + 1}` : s;
+
+        return turns.map(({ speaker, text }) => `${labelFor(speaker)}: ${text}`).join("\n\n");
     }
 
     /**

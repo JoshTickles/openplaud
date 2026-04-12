@@ -225,6 +225,8 @@ export function RecordingWorkstation({
                         initialTranscription={transcription?.text}
                         initialLanguage={transcription?.detectedLanguage}
                         initialType={transcription?.transcriptionType}
+                        duration={recording.duration}
+                        plaudFileId={recording.plaudFileId}
                     />
 
                     {/* AI Enhancement Panel */}

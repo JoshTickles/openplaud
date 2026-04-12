@@ -31,7 +31,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # Install Python + diarization library (CPU-only speaker fingerprinting)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        python3 python3-pip python3-venv libsndfile1 libgomp1 && \
+        python3 python3-pip python3-venv libsndfile1 libgomp1 ffmpeg && \
     python3 -m venv /opt/diarize && \
     /opt/diarize/bin/pip install --no-cache-dir diarize && \
     rm -rf /var/lib/apt/lists/*

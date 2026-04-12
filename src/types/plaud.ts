@@ -58,3 +58,21 @@ export interface PlaudApiError {
     status: number;
     msg: string;
 }
+
+/** A single segment from Plaud's stored transcription (trans_result field). */
+export interface PlaudTranscriptSegment {
+    speaker: string;
+    content: string;
+    start_time: number; // milliseconds from start of recording
+    end_time: number;   // milliseconds from start of recording
+}
+
+/** Response from POST /file/list — returns full file detail including trans_result. */
+export interface PlaudFileListResponse {
+    status: number;
+    msg: string;
+    data_file_list: Array<{
+        id: string;
+        trans_result?: PlaudTranscriptSegment[];
+    }>;
+}

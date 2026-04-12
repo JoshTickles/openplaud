@@ -23,6 +23,7 @@ export default async function DashboardPage() {
             filesize: recordings.filesize,
             deviceSn: recordings.deviceSn,
             upstreamDeleted: recordings.upstreamDeleted,
+            plaudFileId: recordings.plaudFileId,
         })
         .from(recordings)
         .where(

@@ -16,6 +16,7 @@ export type RecordingQueryResult = Pick<
     | "filesize"
     | "deviceSn"
     | "upstreamDeleted"
+    | "plaudFileId"
 >;
 
 export type Recording = Omit<RecordingQueryResult, "startTime"> & {

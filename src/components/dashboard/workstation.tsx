@@ -170,7 +170,11 @@ export function Workstation({ recordings, transcriptions, allTags }: Workstation
             );
 
             if (response.ok) {
+                const data = await response.json();
                 toast.success("Transcription complete");
+                if (data.compressionWarning) {
+                    toast.warning(data.compressionWarning, { duration: 10000 });
+                }
                 router.refresh();
             } else {
                 const error = await response.json();
@@ -198,7 +202,11 @@ export function Workstation({ recordings, transcriptions, allTags }: Workstation
             );
 
             if (response.ok) {
+                const data = await response.json();
                 toast.success("Re-transcription complete");
+                if (data.compressionWarning) {
+                    toast.warning(data.compressionWarning, { duration: 10000 });
+                }
                 router.refresh();
             } else {
                 const error = await response.json();
