@@ -303,22 +303,69 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
             diarizeHint,
         );
 
-        const response = await ai.models.generateContent({
-            model: modelId,
-            contents: [{
-                role: "user",
-                parts: [
-                    { inlineData: { mimeType: mimeTypeForGemini(effectiveMimeType), data: audioToSend.toString("base64") } },
-                    { text: prompt },
-                ],
-            }],
-            config: {
-                temperature: 0.15,
-                maxOutputTokens: 65536,
-                frequencyPenalty: 0.6,
-                httpOptions: { timeout: 1_800_000 },
-            },
-        });
+        console.log(`[Gemini] Starting generateContent call (model=${modelId}, location=${location}, audioSize=${audioToSend.length}, diarizeSegments=${diarizeResult?.segments.length ?? 0})`);
+        const callStart = Date.now();
+
+        let response;
+        try {
+            response = await ai.models.generateContent({
+                model: modelId,
+                contents: [{
+                    role: "user",
+                    parts: [
+                        { inlineData: { mimeType: mimeTypeForGemini(effectiveMimeType), data: audioToSend.toString("base64") } },
+                        { text: prompt },
+                    ],
+                }],
+                config: {
+                    temperature: 0.15,
+                    maxOutputTokens: 65536,
+                    frequencyPenalty: 0.6,
+                    httpOptions: { timeout: 1_800_000 },
+                },
+            });
+        } catch (geminiErr) {
+            const elapsed = ((Date.now() - callStart) / 1000).toFixed(1);
+            const errName = geminiErr instanceof Error ? geminiErr.name : "unknown";
+            const errCode = (geminiErr as { code?: number })?.code;
+            console.error(`[Gemini] generateContent failed after ${elapsed}s: ${errName} code=${errCode}`);
+
+            // If we hit a TimeoutError (code 23) and were using diarization,
+            // retry once without the diarization hint as a fallback.
+            if (useDiarization && diarizeHint && errCode === 23) {
+                console.warn("[Gemini] TimeoutError with diarization hint — retrying without diarization hint");
+                const fallbackPrompt = buildPrompt(
+                    useDiarization,
+                    options.diarizationSpeakers ?? DEFAULT_SPEAKER_COUNT,
+                    options.language,
+                    undefined, // no diarization hint
+                );
+                const retryStart = Date.now();
+                console.log("[Gemini] Starting fallback generateContent call (no diarize hint)...");
+                response = await ai.models.generateContent({
+                    model: modelId,
+                    contents: [{
+                        role: "user",
+                        parts: [
+                            { inlineData: { mimeType: mimeTypeForGemini(effectiveMimeType), data: audioToSend.toString("base64") } },
+                            { text: fallbackPrompt },
+                        ],
+                    }],
+                    config: {
+                        temperature: 0.15,
+                        maxOutputTokens: 65536,
+                        frequencyPenalty: 0.6,
+                        httpOptions: { timeout: 1_800_000 },
+                    },
+                });
+                console.log(`[Gemini] Fallback generateContent completed in ${((Date.now() - retryStart) / 1000).toFixed(1)}s`);
+            } else {
+                throw geminiErr;
+            }
+        }
+
+        console.log(`[Gemini] generateContent completed in ${((Date.now() - callStart) / 1000).toFixed(1)}s`);
+
 
         const raw = response.text?.trim() ?? "";
         const { text: cleaned, wasTruncated } = truncateRepetitionLoop(raw);
