@@ -1,5 +1,5 @@
 import { and, desc, eq } from "drizzle-orm";
-import { Workstation } from "@/components/dashboard/workstation";
+import { VoiceMemoWorkstation } from "@/components/voice-memos/workstation";
 import { db } from "@/db";
 import {
     recordings,
@@ -11,7 +11,7 @@ import { requireAuth } from "@/lib/auth-server";
 import type { Tag } from "@/types/recording";
 import { serializeRecording } from "@/types/recording";
 
-export default async function DashboardPage() {
+export default async function VoiceMemosPage() {
     const session = await requireAuth();
 
     const userRecordings = await db
@@ -31,20 +31,25 @@ export default async function DashboardPage() {
             and(
                 eq(recordings.userId, session.user.id),
                 eq(recordings.isTrash, false),
-                eq(recordings.source, "plaud"),
+                eq(recordings.source, "upload"),
             ),
         )
         .orderBy(desc(recordings.startTime));
 
-    const userTranscriptions = await db
-        .select({
-            recordingId: transcriptions.recordingId,
-            text: transcriptions.text,
-            language: transcriptions.detectedLanguage,
-            speakerMap: transcriptions.speakerMap,
-        })
-        .from(transcriptions)
-        .where(eq(transcriptions.userId, session.user.id));
+    const recordingIds = userRecordings.map((r) => r.id);
+
+    const userTranscriptions =
+        recordingIds.length > 0
+            ? await db
+                  .select({
+                      recordingId: transcriptions.recordingId,
+                      text: transcriptions.text,
+                      language: transcriptions.detectedLanguage,
+                      speakerMap: transcriptions.speakerMap,
+                  })
+                  .from(transcriptions)
+                  .where(eq(transcriptions.userId, session.user.id))
+            : [];
 
     const allTags = await db
         .select()
@@ -52,17 +57,20 @@ export default async function DashboardPage() {
         .where(eq(recordingTags.userId, session.user.id))
         .orderBy(recordingTags.name);
 
-    const allAssignments = await db
-        .select({
-            recordingId: recordingTagAssignments.recordingId,
-            tagId: recordingTagAssignments.tagId,
-        })
-        .from(recordingTagAssignments)
-        .innerJoin(
-            recordingTags,
-            eq(recordingTagAssignments.tagId, recordingTags.id),
-        )
-        .where(eq(recordingTags.userId, session.user.id));
+    const allAssignments =
+        recordingIds.length > 0
+            ? await db
+                  .select({
+                      recordingId: recordingTagAssignments.recordingId,
+                      tagId: recordingTagAssignments.tagId,
+                  })
+                  .from(recordingTagAssignments)
+                  .innerJoin(
+                      recordingTags,
+                      eq(recordingTagAssignments.tagId, recordingTags.id),
+                  )
+                  .where(eq(recordingTags.userId, session.user.id))
+            : [];
 
     const tagMap = new Map(allTags.map((t) => [t.id, t]));
     const recordingTagMap = new Map<string, Tag[]>();
@@ -81,14 +89,16 @@ export default async function DashboardPage() {
     });
 
     const transcriptionMap = new Map(
-        userTranscriptions.map((t) => [
-            t.recordingId,
-            {
-                text: t.text,
-                language: t.language || undefined,
-                speakerMap: t.speakerMap ?? undefined,
-            },
-        ]),
+        userTranscriptions
+            .filter((t) => recordingIds.includes(t.recordingId))
+            .map((t) => [
+                t.recordingId,
+                {
+                    text: t.text,
+                    language: t.language || undefined,
+                    speakerMap: t.speakerMap ?? undefined,
+                },
+            ]),
     );
 
     const serializedTags: Tag[] = allTags.map((t) => ({
@@ -98,7 +108,7 @@ export default async function DashboardPage() {
     }));
 
     return (
-        <Workstation
+        <VoiceMemoWorkstation
             recordings={recordingsData}
             transcriptions={transcriptionMap}
             allTags={serializedTags}

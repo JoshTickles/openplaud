@@ -17,6 +17,7 @@ export type RecordingQueryResult = Pick<
     | "deviceSn"
     | "upstreamDeleted"
     | "plaudFileId"
+    | "source"
 >;
 
 export type Recording = Omit<RecordingQueryResult, "startTime"> & {

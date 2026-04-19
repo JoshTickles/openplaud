@@ -243,7 +243,7 @@ export async function transcribeRecording(
                         })
                         .where(eq(recordings.id, recordingId));
 
-                    if (syncTitleToPlaud) {
+                    if (syncTitleToPlaud && recording.source !== "upload" && recording.plaudFileId) {
                         try {
                             const [connection] = await db
                                 .select()

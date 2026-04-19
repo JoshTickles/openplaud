@@ -57,22 +57,24 @@ export async function PATCH(
             .set({ filename: cleanFilename, updatedAt: new Date() })
             .where(eq(recordings.id, id));
 
-        try {
-            const [connection] = await db
-                .select()
-                .from(plaudConnections)
-                .where(eq(plaudConnections.userId, session.user.id))
-                .limit(1);
+        if (recording.source !== "upload" && recording.plaudFileId) {
+            try {
+                const [connection] = await db
+                    .select()
+                    .from(plaudConnections)
+                    .where(eq(plaudConnections.userId, session.user.id))
+                    .limit(1);
 
-            if (connection) {
-                const plaudClient = await createPlaudClient(
-                    connection.bearerToken,
-                    connection.apiBase,
-                );
-                await plaudClient.updateFilename(recording.plaudFileId, cleanFilename);
+                if (connection) {
+                    const plaudClient = await createPlaudClient(
+                        connection.bearerToken,
+                        connection.apiBase,
+                    );
+                    await plaudClient.updateFilename(recording.plaudFileId, cleanFilename);
+                }
+            } catch (syncError) {
+                console.error("Failed to sync filename to Plaud:", syncError);
             }
-        } catch (syncError) {
-            console.error("Failed to sync filename to Plaud:", syncError);
         }
 
         return NextResponse.json({

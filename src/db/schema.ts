@@ -119,23 +119,22 @@ export const recordings = pgTable(
         userId: text("user_id")
             .notNull()
             .references(() => users.id, { onDelete: "cascade" }),
-        deviceSn: varchar("device_sn", { length: 255 }).notNull(),
-        // Unique ID from Plaud API
-        plaudFileId: varchar("plaud_file_id", { length: 255 })
-            .notNull()
-            .unique(),
+        source: varchar("source", { length: 10 }).notNull().default("plaud"), // 'plaud' or 'upload'
+        deviceSn: varchar("device_sn", { length: 255 }),
+        // Unique ID from Plaud API (null for uploads)
+        plaudFileId: varchar("plaud_file_id", { length: 255 }),
         filename: text("filename").notNull(),
         duration: integer("duration").notNull(), // milliseconds
         startTime: timestamp("start_time").notNull(),
         endTime: timestamp("end_time").notNull(),
         filesize: integer("filesize").notNull(), // bytes
-        fileMd5: varchar("file_md5", { length: 32 }).notNull(),
+        fileMd5: varchar("file_md5", { length: 32 }),
         // Storage info
         storageType: varchar("storage_type", { length: 10 }).notNull(), // 'local' or 's3'
         storagePath: text("storage_path").notNull(), // Local path or S3 key
         downloadedAt: timestamp("downloaded_at"),
-        // Version from Plaud API (for detecting updates)
-        plaudVersion: varchar("plaud_version", { length: 50 }).notNull(),
+        // Version from Plaud API (for detecting updates; null for uploads)
+        plaudVersion: varchar("plaud_version", { length: 50 }),
         // Metadata
         timezone: integer("timezone"),
         zonemins: integer("zonemins"),
@@ -156,6 +155,11 @@ export const recordings = pgTable(
         userStartTimeIdx: index("recordings_user_id_start_time_idx").on(
             table.userId,
             table.startTime,
+        ),
+        // Index for filtering by source
+        sourceIdx: index("recordings_source_idx").on(
+            table.userId,
+            table.source,
         ),
     }),
 );

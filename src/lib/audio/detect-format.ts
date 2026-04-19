@@ -35,6 +35,22 @@ export function detectAudioFormat(buffer: Buffer | Uint8Array): AudioFormatInfo 
         return { contentType: "audio/flac", extension: ".flac" };
     }
 
+    // M4A/MP4/AAC container: look for "ftyp" box at offset 4
+    // Common ftypes: M4A, isom, mp42, MSNV (Samsung voice recorder uses isom/mp42)
+    if (bytes.length >= 8 && bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70) {
+        return { contentType: "audio/mp4", extension: ".m4a" };
+    }
+
+    // AAC ADTS raw stream: starts with 0xFF 0xF1 or 0xFF 0xF9
+    if (bytes.length >= 2 && bytes[0] === 0xFF && (bytes[1] === 0xF1 || bytes[1] === 0xF9)) {
+        return { contentType: "audio/aac", extension: ".aac" };
+    }
+
+    // WebM container (Opus/Vorbis): starts with 0x1A 0x45 0xDF 0xA3 (EBML header)
+    if (bytes.length >= 4 && bytes[0] === 0x1A && bytes[1] === 0x45 && bytes[2] === 0xDF && bytes[3] === 0xA3) {
+        return { contentType: "audio/webm", extension: ".webm" };
+    }
+
     // Default fallback: assume MP3 (legacy behavior)
     return { contentType: "audio/mpeg", extension: ".mp3" };
 }

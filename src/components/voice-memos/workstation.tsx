@@ -1,28 +1,21 @@
 "use client";
 
-import { BookOpen, CheckCircle, CloudOff, Mic, Pencil, RefreshCw, Settings, Trash2, Upload, X } from "lucide-react";
+import { BookOpen, CheckCircle, Mic, Pencil, Settings, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { OnboardingDialog } from "@/components/onboarding-dialog";
+import { RecordingList } from "@/components/dashboard/recording-list";
+import { RecordingPlayer } from "@/components/dashboard/recording-player";
+import { SpeakerLabelEditor } from "@/components/dashboard/speaker-label-editor";
+import { TagAssignment } from "@/components/dashboard/tag-assignment";
+import { TranscriptionPanel } from "@/components/dashboard/transcription-panel";
 import { SettingsDialog } from "@/components/settings-dialog";
-import { SyncStatus } from "@/components/sync-status";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { useAutoSync } from "@/hooks/use-auto-sync";
-import {
-    requestNotificationPermission,
-    showNewRecordingNotification,
-    showSyncCompleteNotification,
-} from "@/lib/notifications/browser";
-import { getSyncSettings, SYNC_CONFIG } from "@/lib/sync-config";
 import type { Recording, Tag } from "@/types/recording";
-import { RecordingList } from "./recording-list";
-import { RecordingPlayer } from "./recording-player";
-import { TagAssignment } from "./tag-assignment";
-import { TranscriptionPanel } from "./transcription-panel";
+import { UploadZone } from "./upload-zone";
 
 interface TranscriptionData {
     text?: string;
@@ -30,13 +23,17 @@ interface TranscriptionData {
     speakerMap?: Record<string, string>;
 }
 
-interface WorkstationProps {
+interface VoiceMemoWorkstationProps {
     recordings: Recording[];
     transcriptions: Map<string, TranscriptionData>;
     allTags: Tag[];
 }
 
-export function Workstation({ recordings, transcriptions, allTags }: WorkstationProps) {
+export function VoiceMemoWorkstation({
+    recordings,
+    transcriptions,
+    allTags,
+}: VoiceMemoWorkstationProps) {
     const router = useRouter();
     const [currentRecording, setCurrentRecording] = useState<Recording | null>(
         recordings.length > 0 ? recordings[0] : null,
@@ -48,7 +45,6 @@ export function Workstation({ recordings, transcriptions, allTags }: Workstation
     const [tags, setTags] = useState<Tag[]>(allTags);
     const [filterTagId, setFilterTagId] = useState<string | null>(null);
     const [settingsOpen, setSettingsOpen] = useState(false);
-    const [onboardingOpen, setOnboardingOpen] = useState(false);
     const [providers, setProviders] = useState<
         Array<{
             id: string;
@@ -60,94 +56,10 @@ export function Workstation({ recordings, transcriptions, allTags }: Workstation
             createdAt: Date;
         }>
     >([]);
-    const [syncSettings, setSyncSettings] = useState<{
-        syncInterval: number;
-        autoSyncEnabled: boolean;
-        syncOnMount: boolean;
-        syncOnVisibilityChange: boolean;
-        syncNotifications: boolean;
-    } | null>(null);
-    const [notificationPrefs, setNotificationPrefs] = useState<{
-        browserNotifications: boolean;
-    } | null>(null);
 
     const currentTranscription = currentRecording
         ? transcriptions.get(currentRecording.id)
         : undefined;
-
-    useEffect(() => {
-        getSyncSettings().then(setSyncSettings);
-    }, []);
-
-    useEffect(() => {
-        const fetchNotificationPrefs = async () => {
-            try {
-                const res = await fetch("/api/settings/user");
-                if (!res.ok) return;
-                const data = await res.json();
-                setNotificationPrefs({
-                    browserNotifications: data.browserNotifications ?? true,
-                });
-            } catch {
-                // best-effort; ignore
-            }
-        };
-
-        fetchNotificationPrefs();
-    }, []);
-
-    useEffect(() => {
-        if (!settingsOpen) {
-            getSyncSettings().then(setSyncSettings);
-        }
-    }, [settingsOpen]);
-
-    const {
-        isAutoSyncing,
-        lastSyncTime,
-        nextSyncTime,
-        lastSyncResult,
-        manualSync,
-    } = useAutoSync({
-        interval: syncSettings?.syncInterval ?? SYNC_CONFIG.defaultInterval,
-        minInterval: SYNC_CONFIG.minInterval,
-        syncOnMount: syncSettings?.syncOnMount ?? SYNC_CONFIG.syncOnMount,
-        syncOnVisibilityChange:
-            syncSettings?.syncOnVisibilityChange ??
-            SYNC_CONFIG.syncOnVisibilityChange,
-        enabled: syncSettings?.autoSyncEnabled ?? true,
-        onSuccess: (newRecordings) => {
-            if (syncSettings?.syncNotifications !== false) {
-                if (newRecordings > 0) {
-                    toast.success(
-                        `Synced ${newRecordings} new recording${newRecordings !== 1 ? "s" : ""}`,
-                    );
-                } else {
-                    toast.success("Sync complete - no new recordings");
-                }
-            }
-
-            if (notificationPrefs?.browserNotifications) {
-                (async () => {
-                    const granted = await requestNotificationPermission();
-                    if (!granted) return;
-
-                    if (newRecordings > 0) {
-                        showNewRecordingNotification(newRecordings);
-                    } else {
-                        showSyncCompleteNotification();
-                    }
-                })();
-            }
-        },
-        onError: (error) => {
-            toast.error(error);
-        },
-    });
-
-    const handleSync = useCallback(async () => {
-        await manualSync();
-    }, [manualSync]);
 
     useEffect(() => {
         if (settingsOpen) {
@@ -165,9 +77,7 @@ export function Workstation({ recordings, transcriptions, allTags }: Workstation
         try {
             const response = await fetch(
                 `/api/recordings/${currentRecording.id}/transcribe`,
-                {
-                    method: "POST",
-                },
+                { method: "POST" },
             );
 
             if (response.ok) {
@@ -252,7 +162,7 @@ export function Workstation({ recordings, transcriptions, allTags }: Workstation
 
             if (!response.ok) {
                 const error = await response.json();
-                toast.error(error.error || "Failed to rename recording");
+                toast.error(error.error || "Failed to rename");
                 return;
             }
 
@@ -260,14 +170,10 @@ export function Workstation({ recordings, transcriptions, allTags }: Workstation
                 prev ? { ...prev, filename: newName } : prev,
             );
             setIsRenaming(false);
-            toast.success(
-                currentRecording.source === "upload"
-                    ? "Recording renamed"
-                    : "Recording renamed & synced to Plaud",
-            );
+            toast.success("Renamed");
             router.refresh();
         } catch {
-            toast.error("Failed to rename recording");
+            toast.error("Failed to rename");
         } finally {
             setIsSavingRename(false);
         }
@@ -285,20 +191,20 @@ export function Workstation({ recordings, transcriptions, allTags }: Workstation
 
         try {
             const response = await fetch(
-                `/api/recordings/${currentRecording.id}`,
+                `/api/voice-memos/${currentRecording.id}`,
                 { method: "DELETE" },
             );
 
             if (response.ok) {
-                toast.success("Recording deleted");
+                toast.success("Voice memo deleted");
                 setCurrentRecording(null);
                 router.refresh();
             } else {
                 const error = await response.json();
-                toast.error(error.error || "Failed to delete recording");
+                toast.error(error.error || "Failed to delete");
             }
         } catch {
-            toast.error("Failed to delete recording");
+            toast.error("Failed to delete voice memo");
         }
     }, [currentRecording, router]);
 
@@ -317,9 +223,7 @@ export function Workstation({ recordings, transcriptions, allTags }: Workstation
     const handleTagsChanged = useCallback(
         (recordingId: string, newTags: Tag[]) => {
             setCurrentRecording((prev) =>
-                prev?.id === recordingId
-                    ? { ...prev, tags: newTags }
-                    : prev,
+                prev?.id === recordingId ? { ...prev, tags: newTags } : prev,
             );
             router.refresh();
         },
@@ -328,30 +232,33 @@ export function Workstation({ recordings, transcriptions, allTags }: Workstation
 
     const [isExporting, setIsExporting] = useState(false);
 
-    const handlePushToObsidian = useCallback(async (options?: { silent?: boolean }) => {
-        if (!currentRecording) return;
+    const handlePushToObsidian = useCallback(
+        async (options?: { silent?: boolean }) => {
+            if (!currentRecording) return;
 
-        const silent = options?.silent ?? false;
-        setIsExporting(true);
-        try {
-            const response = await fetch(
-                `/api/recordings/${currentRecording.id}/export-obsidian`,
-                { method: "POST" },
-            );
+            const silent = options?.silent ?? false;
+            setIsExporting(true);
+            try {
+                const response = await fetch(
+                    `/api/recordings/${currentRecording.id}/export-obsidian`,
+                    { method: "POST" },
+                );
 
-            const data = await response.json();
+                const data = await response.json();
 
-            if (response.ok) {
-                toast.success(`Pushed to Obsidian: ${data.vaultPath}`);
-            } else if (!silent) {
-                toast.error(data.error || "Failed to push to Obsidian");
+                if (response.ok) {
+                    toast.success(`Pushed to Obsidian: ${data.vaultPath}`);
+                } else if (!silent) {
+                    toast.error(data.error || "Failed to push to Obsidian");
+                }
+            } catch {
+                if (!silent) toast.error("Failed to push to Obsidian");
+            } finally {
+                setIsExporting(false);
             }
-        } catch {
-            if (!silent) toast.error("Failed to push to Obsidian");
-        } finally {
-            setIsExporting(false);
-        }
-    }, [currentRecording]);
+        },
+        [currentRecording],
+    );
 
     const handleSpeakerMapChanged = useCallback(
         (map: Record<string, string>) => {
@@ -367,52 +274,30 @@ export function Workstation({ recordings, transcriptions, allTags }: Workstation
         [currentRecording, transcriptions, router, handlePushToObsidian],
     );
 
+    const handleUploadComplete = useCallback(() => {
+        router.refresh();
+    }, [router]);
+
     return (
         <>
             <div className="bg-background">
                 <div className="container mx-auto px-4 py-6 max-w-7xl">
                     <div className="flex items-center justify-between mb-6">
                         <div>
-                            <h1 className="text-3xl font-bold">Recordings</h1>
+                            <h1 className="text-3xl font-bold">Voice Memos</h1>
                             <p className="text-muted-foreground text-sm mt-1">
-                                {recordings.length} recording
-                                {recordings.length !== 1 ? "s" : ""}
+                                {recordings.length} memo
+                                {recordings.length !== 1 ? "s" : ""}{" "}
                                 <span className="mx-1">·</span>
                                 <Link
-                                    href="/voice-memos"
+                                    href="/dashboard"
                                     className="text-primary hover:underline"
                                 >
-                                    Voice Memos
+                                    Plaud Recordings
                                 </Link>
                             </p>
                         </div>
                         <div className="flex items-center gap-3">
-                            <SyncStatus
-                                lastSyncTime={lastSyncTime}
-                                nextSyncTime={nextSyncTime}
-                                isAutoSyncing={isAutoSyncing}
-                                lastSyncResult={lastSyncResult}
-                                className="hidden md:flex"
-                            />
-                            <Button
-                                onClick={handleSync}
-                                disabled={isAutoSyncing}
-                                variant="outline"
-                                size="sm"
-                                className="h-9"
-                            >
-                                {isAutoSyncing ? (
-                                    <>
-                                        <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                                        Syncing...
-                                    </>
-                                ) : (
-                                    <>
-                                        <RefreshCw className="w-4 h-4 mr-2" />
-                                        Sync Device
-                                    </>
-                                )}
-                            </Button>
                             <Button
                                 onClick={() => setSettingsOpen(true)}
                                 variant="outline"
@@ -423,33 +308,22 @@ export function Workstation({ recordings, transcriptions, allTags }: Workstation
                         </div>
                     </div>
 
+                    <div className="mb-6">
+                        <UploadZone onUploadComplete={handleUploadComplete} />
+                    </div>
+
                     {recordings.length === 0 ? (
                         <Card>
                             <CardContent className="flex flex-col items-center justify-center py-16">
                                 <Mic className="w-16 h-16 text-muted-foreground mb-4" />
                                 <h3 className="text-lg font-semibold mb-2">
-                                    No recordings yet
+                                    No voice memos yet
                                 </h3>
-                                <p className="text-muted-foreground text-sm mb-6 text-center max-w-md">
-                                    Sync your Plaud device to import your
-                                    recordings and start transcribing them.
+                                <p className="text-muted-foreground text-sm text-center max-w-md">
+                                    Upload audio files from your phone or other
+                                    recording devices to transcribe and process
+                                    them.
                                 </p>
-                                <Button
-                                    onClick={handleSync}
-                                    disabled={isAutoSyncing}
-                                >
-                                    {isAutoSyncing ? (
-                                        <>
-                                            <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                                            Syncing...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <RefreshCw className="w-4 h-4 mr-2" />
-                                            Sync Device
-                                        </>
-                                    )}
-                                </Button>
                             </CardContent>
                         </Card>
                     ) : (
@@ -468,59 +342,86 @@ export function Workstation({ recordings, transcriptions, allTags }: Workstation
                             <div className="lg:col-span-2 space-y-6">
                                 {currentRecording ? (
                                     <>
-                                        {/* Recording title with rename */}
                                         <div className="flex items-center gap-3">
                                             {isRenaming ? (
                                                 <div className="flex items-center gap-2 flex-1">
                                                     <Input
                                                         value={renameValue}
-                                                        onChange={(e) => setRenameValue(e.target.value)}
+                                                        onChange={(e) =>
+                                                            setRenameValue(
+                                                                e.target.value,
+                                                            )
+                                                        }
                                                         onKeyDown={(e) => {
-                                                            if (e.key === "Enter") handleRenameSave();
-                                                            if (e.key === "Escape") handleRenameCancel();
+                                                            if (
+                                                                e.key ===
+                                                                "Enter"
+                                                            )
+                                                                handleRenameSave();
+                                                            if (
+                                                                e.key ===
+                                                                "Escape"
+                                                            )
+                                                                handleRenameCancel();
                                                         }}
                                                         className="text-lg font-semibold h-auto py-1"
                                                         autoFocus
-                                                        disabled={isSavingRename}
+                                                        disabled={
+                                                            isSavingRename
+                                                        }
                                                     />
-                                                    <Button size="icon" variant="ghost" onClick={handleRenameSave} disabled={isSavingRename}>
+                                                    <Button
+                                                        size="icon"
+                                                        variant="ghost"
+                                                        onClick={
+                                                            handleRenameSave
+                                                        }
+                                                        disabled={
+                                                            isSavingRename
+                                                        }
+                                                    >
                                                         <CheckCircle className="w-5 h-5 text-green-500" />
                                                     </Button>
-                                                    <Button size="icon" variant="ghost" onClick={handleRenameCancel} disabled={isSavingRename}>
+                                                    <Button
+                                                        size="icon"
+                                                        variant="ghost"
+                                                        onClick={
+                                                            handleRenameCancel
+                                                        }
+                                                        disabled={
+                                                            isSavingRename
+                                                        }
+                                                    >
                                                         <X className="w-5 h-5" />
                                                     </Button>
                                                 </div>
                                             ) : (
                                                 <>
                                                     <h2 className="text-lg font-semibold truncate flex-1">
-                                                        {currentRecording.filename}
+                                                        {
+                                                            currentRecording.filename
+                                                        }
                                                     </h2>
-                                                    {currentRecording.upstreamDeleted && (
-                                                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-amber-500/20 text-amber-400 shrink-0">
-                                                            <CloudOff className="w-3 h-3" />
-                                                            Local only
-                                                        </span>
-                                                    )}
                                                     <Button
                                                         size="icon"
                                                         variant="outline"
-                                                        onClick={handleRenameStart}
-                                                        title="Rename and sync to Plaud"
+                                                        onClick={
+                                                            handleRenameStart
+                                                        }
+                                                        title="Rename"
                                                         className="shrink-0"
                                                     >
                                                         <Pencil className="w-4 h-4" />
                                                     </Button>
-                                                    {currentRecording.upstreamDeleted && (
-                                                        <Button
-                                                            size="icon"
-                                                            variant="outline"
-                                                            onClick={handleDelete}
-                                                            title="Delete local recording"
-                                                            className="shrink-0 text-destructive hover:text-destructive"
-                                                        >
-                                                            <Trash2 className="w-4 h-4" />
-                                                        </Button>
-                                                    )}
+                                                    <Button
+                                                        size="icon"
+                                                        variant="outline"
+                                                        onClick={handleDelete}
+                                                        title="Delete voice memo"
+                                                        className="shrink-0 text-destructive hover:text-destructive"
+                                                    >
+                                                        <Trash2 className="w-4 h-4" />
+                                                    </Button>
                                                 </>
                                             )}
                                         </div>
@@ -554,24 +455,32 @@ export function Workstation({ recordings, transcriptions, allTags }: Workstation
                                                 }
                                             }}
                                         />
+
                                         <TranscriptionPanel
                                             recording={currentRecording}
                                             transcription={currentTranscription}
                                             isTranscribing={isTranscribing}
                                             onTranscribe={handleTranscribe}
                                             onRetranscribe={handleRetranscribe}
-                                            onSpeakerMapChanged={handleSpeakerMapChanged}
+                                            onSpeakerMapChanged={
+                                                handleSpeakerMapChanged
+                                            }
                                         />
+
                                         {currentTranscription?.text && (
                                             <div className="flex justify-end">
                                                 <Button
-                                                    onClick={() => handlePushToObsidian()}
+                                                    onClick={() =>
+                                                        handlePushToObsidian()
+                                                    }
                                                     disabled={isExporting}
                                                     variant="outline"
                                                     size="sm"
                                                 >
                                                     <BookOpen className="w-4 h-4 mr-2" />
-                                                    {isExporting ? "Pushing..." : "Push to Obsidian"}
+                                                    {isExporting
+                                                        ? "Pushing..."
+                                                        : "Push to Obsidian"}
                                                 </Button>
                                             </div>
                                         )}
@@ -580,7 +489,7 @@ export function Workstation({ recordings, transcriptions, allTags }: Workstation
                                     <Card>
                                         <CardContent className="py-16 text-center">
                                             <p className="text-muted-foreground">
-                                                Select a recording to view
+                                                Select a voice memo to view
                                                 details and transcription
                                             </p>
                                         </CardContent>
@@ -600,16 +509,6 @@ export function Workstation({ recordings, transcriptions, allTags }: Workstation
                 onTagsChanged={refreshTags}
                 onReRunOnboarding={() => {
                     setSettingsOpen(false);
-                    setOnboardingOpen(true);
-                }}
-            />
-
-            <OnboardingDialog
-                open={onboardingOpen}
-                onOpenChange={setOnboardingOpen}
-                onComplete={() => {
-                    setOnboardingOpen(false);
-                    router.refresh();
                 }}
             />
         </>
