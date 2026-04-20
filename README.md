@@ -27,9 +27,15 @@
 - **Automatic repetition loop detection** — catches and truncates Gemini output loops (both exact and near-identical patterns) before saving
 - **Auto-fallback** — if Gemini fails, falls back to the next configured provider
 
+### Voice Memos (Upload & Process Local Audio)
+- **Drag-and-drop upload** — upload audio files from your phone or any recording device (MP3, M4A, AAC, WAV, OGG, FLAC, WebM up to 500MB)
+- **Separate `/voice-memos` page** — conceptually distinct from Plaud recordings, with its own upload zone and recording list
+- **Full pipeline reuse** — uploaded files go through the same transcription, diarization, AI enhancement, speaker mapping, tags, and Obsidian export as Plaud recordings
+- **Samsung/iPhone voice memo support** — M4A/AAC format detection for phone voice recorder apps
+
 ### Multi-Provider Transcription
 - **Provider abstraction layer** — factory pattern supporting OpenAI, Azure Whisper, LiteLLM proxy, and Google Gemini
-- **Audio format detection** — magic-byte detection for Opus, MP3, WAV, FLAC (Plaud stores Opus files with `.mp3` extensions)
+- **Audio format detection** — magic-byte detection for Opus, MP3, WAV, FLAC, M4A/AAC, WebM (Plaud stores Opus files with `.mp3` extensions)
 - **Force re-transcribe** — re-run transcription on any recording with a single click
 
 ### Speaker Name Mapping
@@ -547,6 +553,17 @@ src/
 | `GET` | `/api/recordings/[id]` | Get recording details |
 | `GET` | `/api/recordings/[id]/audio` | Stream audio file |
 | `POST` | `/api/recordings/[id]/transcribe` | Transcribe recording |
+
+</details>
+
+<details>
+<summary><b>🎤 Voice Memos</b></summary>
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/voice-memos` | List uploaded voice memos |
+| `POST` | `/api/voice-memos/upload` | Upload audio file (multipart) |
+| `DELETE` | `/api/voice-memos/[id]` | Delete uploaded voice memo |
 
 </details>
 
