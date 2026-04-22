@@ -510,10 +510,7 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
 
             console.log(`[Gemini] Running voice-fingerprint diarization on ${audioPath} (speakerHint=${speakerCountHint ?? "auto"})...`);
             const start = Date.now();
-            const diarizeOpts = speakerCountHint
-                ? { minSpeakers: Math.max(1, speakerCountHint - 1), maxSpeakers: speakerCountHint + 2 }
-                : undefined;
-            const result = await runDiarization(audioPath, diarizeOpts);
+            const result = await runDiarization(audioPath);
             const elapsed = ((Date.now() - start) / 1000).toFixed(1);
             console.log(
                 `[Gemini] Diarization complete in ${elapsed}s: ` +
