@@ -4,6 +4,8 @@ import { recordings, transcriptions } from "@/db/schema";
 import { auth } from "@/lib/auth";
 import { transcribeRecording } from "@/lib/transcription/transcribe-recording";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(
     request: Request,
     { params }: { params: Promise<{ id: string }> },
@@ -50,6 +52,7 @@ export async function POST(
 
         const url = new URL(request.url);
         const wantStream = url.searchParams.get("stream") === "1";
+        console.log(`[Transcribe] stream=${wantStream}, force=${force}, url=${request.url}`);
 
         if (!wantStream) {
             return handleJsonResponse(session.user.id, id, force);
