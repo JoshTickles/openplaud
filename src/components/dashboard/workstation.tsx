@@ -42,6 +42,8 @@ export function Workstation({ recordings, transcriptions, allTags }: Workstation
         recordings.length > 0 ? recordings[0] : null,
     );
     const [isTranscribing, setIsTranscribing] = useState(false);
+    const [transcribeProgress, setTranscribeProgress] = useState(0);
+    const [transcribeStage, setTranscribeStage] = useState("");
     const [isRenaming, setIsRenaming] = useState(false);
     const [renameValue, setRenameValue] = useState("");
     const [isSavingRename, setIsSavingRename] = useState(false);
@@ -158,67 +160,78 @@ export function Workstation({ recordings, transcriptions, allTags }: Workstation
         }
     }, [settingsOpen]);
 
-    const handleTranscribe = useCallback(async () => {
+    const handleTranscribeStream = useCallback(async (force: boolean) => {
         if (!currentRecording) return;
 
         setIsTranscribing(true);
+        setTranscribeProgress(0);
+        setTranscribeStage("Starting");
         try {
             const response = await fetch(
-                `/api/recordings/${currentRecording.id}/transcribe`,
+                `/api/recordings/${currentRecording.id}/transcribe?stream=1`,
                 {
                     method: "POST",
+                    headers: force ? { "Content-Type": "application/json" } : undefined,
+                    body: force ? JSON.stringify({ force: true }) : undefined,
                 },
             );
 
-            if (response.ok) {
-                const data = await response.json();
-                toast.success("Transcription complete");
-                if (data.compressionWarning) {
-                    toast.warning(data.compressionWarning, { duration: 10000 });
+            if (!response.ok || !response.body) {
+                let errorMessage = "Transcription failed";
+                try {
+                    const errorData = await response.json();
+                    errorMessage = errorData.error || errorMessage;
+                } catch { /* non-JSON */ }
+                toast.error(errorMessage);
+                return;
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "";
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split("\n\n");
+                buffer = lines.pop() || "";
+
+                for (const line of lines) {
+                    const dataLine = line.trim();
+                    if (!dataLine.startsWith("data: ")) continue;
+                    try {
+                        const event = JSON.parse(dataLine.slice(6));
+                        if (event.error) {
+                            toast.error(event.error);
+                            return;
+                        }
+                        if (event.progress !== undefined) {
+                            setTranscribeProgress(event.progress);
+                            setTranscribeStage(event.stage || "");
+                        }
+                        if (event.result) {
+                            toast.success(force ? "Re-transcription complete" : "Transcription complete");
+                            if (event.result.compressionWarning) {
+                                toast.warning(event.result.compressionWarning, { duration: 10000 });
+                            }
+                            router.refresh();
+                        }
+                    } catch { /* skip malformed events */ }
                 }
-                router.refresh();
-            } else {
-                const error = await response.json();
-                toast.error(error.error || "Transcription failed");
             }
         } catch {
             toast.error("Failed to transcribe recording");
         } finally {
             setIsTranscribing(false);
+            setTranscribeProgress(0);
+            setTranscribeStage("");
         }
     }, [currentRecording, router]);
 
-    const handleRetranscribe = useCallback(async () => {
-        if (!currentRecording) return;
-
-        setIsTranscribing(true);
-        try {
-            const response = await fetch(
-                `/api/recordings/${currentRecording.id}/transcribe`,
-                {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ force: true }),
-                },
-            );
-
-            if (response.ok) {
-                const data = await response.json();
-                toast.success("Re-transcription complete");
-                if (data.compressionWarning) {
-                    toast.warning(data.compressionWarning, { duration: 10000 });
-                }
-                router.refresh();
-            } else {
-                const error = await response.json();
-                toast.error(error.error || "Re-transcription failed");
-            }
-        } catch {
-            toast.error("Failed to re-transcribe recording");
-        } finally {
-            setIsTranscribing(false);
-        }
-    }, [currentRecording, router]);
+    const handleTranscribe = useCallback(() => handleTranscribeStream(false), [handleTranscribeStream]);
+    const handleRetranscribe = useCallback(() => handleTranscribeStream(true), [handleTranscribeStream]);
 
     const handleRenameStart = useCallback(() => {
         if (!currentRecording) return;
@@ -558,6 +571,8 @@ export function Workstation({ recordings, transcriptions, allTags }: Workstation
                                             recording={currentRecording}
                                             transcription={currentTranscription}
                                             isTranscribing={isTranscribing}
+                                            progress={transcribeProgress}
+                                            progressStage={transcribeStage}
                                             onTranscribe={handleTranscribe}
                                             onRetranscribe={handleRetranscribe}
                                             onSpeakerMapChanged={handleSpeakerMapChanged}

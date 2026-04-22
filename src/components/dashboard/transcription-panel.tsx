@@ -18,6 +18,8 @@ interface TranscriptionPanelProps {
     recording: Recording;
     transcription?: Transcription;
     isTranscribing: boolean;
+    progress?: number;
+    progressStage?: string;
     onTranscribe: () => void;
     onRetranscribe: () => void;
     onSpeakerMapChanged: (map: Record<string, string>) => void;
@@ -45,6 +47,8 @@ export function TranscriptionPanel({
     recording,
     transcription,
     isTranscribing,
+    progress = 0,
+    progressStage = "",
     onTranscribe,
     onRetranscribe,
     onSpeakerMapChanged,
@@ -142,11 +146,23 @@ export function TranscriptionPanel({
             </CardHeader>
             <CardContent>
                 {isTranscribing ? (
-                    <div className="flex flex-col items-center justify-center py-12">
-                        <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full mb-4" />
-                        <p className="text-sm text-muted-foreground">
-                            Transcribing audio...
-                        </p>
+                    <div className="flex flex-col items-center justify-center py-12 px-4">
+                        <div className="w-full max-w-sm space-y-3">
+                            <div className="flex items-center justify-between text-sm">
+                                <span className="text-muted-foreground">
+                                    {progressStage || "Starting..."}
+                                </span>
+                                <span className="font-mono text-primary font-medium">
+                                    {progress}%
+                                </span>
+                            </div>
+                            <div className="h-2 rounded-full bg-muted overflow-hidden">
+                                <div
+                                    className="h-full rounded-full bg-primary transition-all duration-300 ease-out"
+                                    style={{ width: `${progress}%` }}
+                                />
+                            </div>
+                        </div>
                     </div>
                 ) : transcription?.text ? (
                     <div className="space-y-4">
