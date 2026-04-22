@@ -62,8 +62,10 @@ function buildPrompt(
                 "",
                 diarizeHint,
                 "",
-                "Use the speaker timing above to label speakers. When a speaker change occurs",
-                "at a boundary listed above, start a new speaker turn with the correct label.",
+                "Use the chronological timeline above to assign speaker labels.",
+                "Start a new speaker turn when you hear a speaker change that aligns with the timeline.",
+                "If a boundary seems slightly off (e.g. a sentence is split between speakers),",
+                "use the content and conversational context to decide who actually said it.",
             );
         } else {
             // Fallback: no diarization data, let Gemini guess
@@ -369,7 +371,10 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
         let diarizeResult: DiarizeResult | undefined;
         if (useDiarization && options.audioPath) {
             onProgress?.(25, "Analyzing speakers");
-            diarizeResult = await this.tryDiarizeRaw(options.audioPath);
+            diarizeResult = await this.tryDiarizeRaw(
+                options.audioPath,
+                options.diarizationSpeakers,
+            );
         }
 
         const modelId = this.resolveModel(options.model);
@@ -492,7 +497,10 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
      * Returns the raw DiarizeResult (for chunk-level hint filtering), or
      * undefined if diarization is unavailable or fails.
      */
-    private async tryDiarizeRaw(audioPath: string): Promise<DiarizeResult | undefined> {
+    private async tryDiarizeRaw(
+        audioPath: string,
+        speakerCountHint?: number,
+    ): Promise<DiarizeResult | undefined> {
         try {
             const available = await isDiarizationAvailable();
             if (!available) {
@@ -500,9 +508,12 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
                 return undefined;
             }
 
-            console.log(`[Gemini] Running voice-fingerprint diarization on ${audioPath}...`);
+            console.log(`[Gemini] Running voice-fingerprint diarization on ${audioPath} (speakerHint=${speakerCountHint ?? "auto"})...`);
             const start = Date.now();
-            const result = await runDiarization(audioPath);
+            const diarizeOpts = speakerCountHint
+                ? { minSpeakers: Math.max(1, speakerCountHint - 1), maxSpeakers: speakerCountHint + 2 }
+                : undefined;
+            const result = await runDiarization(audioPath, diarizeOpts);
             const elapsed = ((Date.now() - start) / 1000).toFixed(1);
             console.log(
                 `[Gemini] Diarization complete in ${elapsed}s: ` +

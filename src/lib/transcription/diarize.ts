@@ -113,47 +113,73 @@ export async function runDiarization(
 }
 
 /**
+ * Merge adjacent segments from the same speaker when the gap between
+ * them is shorter than `maxGap` seconds. This cleans up diarization
+ * noise where a speaker's turn is split by a sub-second silence.
+ */
+function mergeAdjacentSegments(
+    segments: DiarizeSegment[],
+    maxGap = 1.5,
+): DiarizeSegment[] {
+    if (segments.length === 0) return [];
+
+    const sorted = [...segments].sort((a, b) => a.start - b.start);
+    const merged: DiarizeSegment[] = [{ ...sorted[0] }];
+
+    for (let i = 1; i < sorted.length; i++) {
+        const prev = merged[merged.length - 1];
+        const curr = sorted[i];
+
+        if (curr.speaker === prev.speaker && curr.start - prev.end <= maxGap) {
+            prev.end = Math.max(prev.end, curr.end);
+            prev.duration = prev.end - prev.start;
+        } else {
+            merged.push({ ...curr });
+        }
+    }
+
+    return merged;
+}
+
+/**
  * Format diarization segments into a prompt hint for Gemini.
  *
- * Produces a human-readable timeline that tells Gemini which speaker
- * is active at which timestamps, based on voice fingerprint analysis.
+ * Produces a chronological timeline so Gemini can follow speaker changes
+ * as it processes the audio linearly.
  */
 export function formatDiarizeHint(result: DiarizeResult): string {
     if (result.segments.length === 0) return "";
 
-    // Build per-speaker timeline
-    const speakerTimeline = new Map<string, string[]>();
-    for (const speaker of result.speakers) {
-        speakerTimeline.set(speaker, []);
-    }
+    const segments = mergeAdjacentSegments(result.segments);
 
-    for (const seg of result.segments) {
-        const startFmt = formatTimestamp(seg.start);
-        const endFmt = formatTimestamp(seg.end);
-        speakerTimeline.get(seg.speaker)?.push(`${startFmt}-${endFmt}`);
-    }
-
-    // Map SPEAKER_00 → Speaker 1, SPEAKER_01 → Speaker 2, etc.
-    const lines: string[] = [];
+    // Build speaker label map: SPEAKER_00 → Speaker 1, etc.
     const sortedSpeakers = [...result.speakers].sort();
+    const labelMap = new Map<string, string>();
     for (let i = 0; i < sortedSpeakers.length; i++) {
-        const spk = sortedSpeakers[i];
-        const ranges = speakerTimeline.get(spk) ?? [];
-        lines.push(`Speaker ${i + 1} (${spk}): ${ranges.join(", ")}`);
+        labelMap.set(sortedSpeakers[i], `Speaker ${i + 1}`);
     }
+
+    // Chronological segment list
+    const lines = segments.map((seg) => {
+        const label = labelMap.get(seg.speaker) ?? seg.speaker;
+        return `${formatTimestamp(seg.start)} - ${formatTimestamp(seg.end)} → ${label}`;
+    });
 
     return [
-        "SPEAKER TIMING FROM VOICE ANALYSIS (use these to assign speaker labels):",
+        `SPEAKER TIMELINE FROM VOICE ANALYSIS (${result.num_speakers} speakers detected):`,
         ...lines,
         "",
-        "Follow these speaker boundaries strictly — they are based on voice",
-        "fingerprint analysis and are more reliable than audio similarity alone.",
-        `Map: ${sortedSpeakers.map((s, i) => `${s} → Speaker ${i + 1}`).join(", ")}`,
+        "Use this timeline as a guide to assign speaker labels. The timestamps are",
+        "based on voice fingerprint analysis and are generally reliable, but boundaries",
+        "at quick turn-takes may be slightly off. When the content of a sentence clearly",
+        "belongs to the other speaker (e.g. continuing their thought, answering their",
+        "own question), trust the content over the timestamp boundary.",
+        `Mapping: ${sortedSpeakers.map((s, i) => `${s} = Speaker ${i + 1}`).join(", ")}`,
     ].join("\n");
 }
 
 function formatTimestamp(seconds: number): string {
     const m = Math.floor(seconds / 60);
-    const s = Math.floor(seconds % 60);
-    return `${m}:${s.toString().padStart(2, "0")}`;
+    const s = seconds % 60;
+    return `${m}:${s.toFixed(1).padStart(4, "0")}`;
 }
