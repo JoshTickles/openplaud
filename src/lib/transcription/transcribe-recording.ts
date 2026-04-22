@@ -127,16 +127,13 @@ export async function transcribeRecording(
         const storage = await createUserStorageProvider(userId);
         const audioBuffer = await storage.downloadFile(recording.storagePath);
 
-        // Voice-fingerprint diarization pre-pass is disabled by default.
-        // Gemini-only diarization produces better results for most meetings.
-        // To re-enable, uncomment the block below or add a user setting.
-        // if (speakerDiarization && providerType === "google") {
-        //     const { writeFile } = await import("node:fs/promises");
-        //     const { tmpdir } = await import("node:os");
-        //     const { join } = await import("node:path");
-        //     audioTempPath = join(tmpdir(), `openplaud-diarize-${recording.id}.audio`);
-        //     await writeFile(audioTempPath, audioBuffer);
-        // }
+        if (speakerDiarization && providerType === "google") {
+            const { writeFile } = await import("node:fs/promises");
+            const { tmpdir } = await import("node:os");
+            const { join } = await import("node:path");
+            audioTempPath = join(tmpdir(), `openplaud-diarize-${recording.id}.audio`);
+            await writeFile(audioTempPath, audioBuffer);
+        }
 
         const transcriptionOptions = {
             language: defaultLanguage,

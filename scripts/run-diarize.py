@@ -24,10 +24,40 @@ Output (JSON on stdout):
 import argparse
 import json
 import logging
+import os
 import sys
 
 # Suppress torch/torchaudio warnings that clutter stderr
 logging.basicConfig(level=logging.WARNING)
+
+
+def _configure_threads() -> None:
+    """Cap CPU thread usage from env vars to avoid saturating all cores."""
+    omp = os.environ.get("DIARIZE_OMP_THREADS", "4")
+    onnx = os.environ.get("DIARIZE_ONNX_THREADS", "4")
+
+    os.environ.setdefault("OMP_NUM_THREADS", omp)
+    os.environ.setdefault("MKL_NUM_THREADS", omp)
+    os.environ.setdefault("OPENBLAS_NUM_THREADS", omp)
+
+    import torch
+    torch.set_num_threads(int(omp))
+    torch.set_num_interop_threads(int(omp))
+
+    # Monkey-patch wespeakerruntime to use more ONNX threads
+    import wespeakerruntime as _wr
+    _orig_init = _wr.Speaker.__init__
+    _onnx_threads = int(onnx)
+
+    def _patched_init(self, *a, inter_op_num_threads=1, intra_op_num_threads=1, **kw):
+        _orig_init(
+            self, *a,
+            inter_op_num_threads=_onnx_threads,
+            intra_op_num_threads=_onnx_threads,
+            **kw,
+        )
+
+    _wr.Speaker.__init__ = _patched_init
 
 
 def main() -> None:
@@ -37,6 +67,8 @@ def main() -> None:
     parser.add_argument("--max-speakers", type=int, default=None)
     parser.add_argument("--num-speakers", type=int, default=None)
     args = parser.parse_args()
+
+    _configure_threads()
 
     # Redirect stdout to stderr during import and processing so that
     # model-download progress bars don't corrupt our JSON output.
