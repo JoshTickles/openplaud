@@ -171,7 +171,10 @@ export function Workstation({ recordings, transcriptions, allTags }: Workstation
                 `/api/recordings/${currentRecording.id}/transcribe?stream=1`,
                 {
                     method: "POST",
-                    headers: force ? { "Content-Type": "application/json" } : undefined,
+                    headers: {
+                        ...(force ? { "Content-Type": "application/json" } : {}),
+                        "Accept": "text/event-stream",
+                    },
                     body: force ? JSON.stringify({ force: true }) : undefined,
                 },
             );

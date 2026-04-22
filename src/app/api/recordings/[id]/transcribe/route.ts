@@ -51,8 +51,9 @@ export async function POST(
         }
 
         const url = new URL(request.url);
-        const wantStream = url.searchParams.get("stream") === "1";
-        console.log(`[Transcribe] stream=${wantStream}, force=${force}, url=${request.url}`);
+        const wantStream = url.searchParams.get("stream") === "1" ||
+            request.headers.get("accept")?.includes("text/event-stream") === true;
+        console.log(`[Transcribe] stream=${wantStream}, force=${force}, url=${request.url}, accept=${request.headers.get("accept")}`);
 
         if (!wantStream) {
             return handleJsonResponse(session.user.id, id, force);

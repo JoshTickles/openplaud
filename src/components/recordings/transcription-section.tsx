@@ -70,7 +70,10 @@ export function TranscriptionSection({
                 `/api/recordings/${recordingId}/transcribe?stream=1`,
                 {
                     method: "POST",
-                    headers: isRetranscribe ? { "Content-Type": "application/json" } : undefined,
+                    headers: {
+                        ...(isRetranscribe ? { "Content-Type": "application/json" } : {}),
+                        "Accept": "text/event-stream",
+                    },
                     body: isRetranscribe ? JSON.stringify({ force: true }) : undefined,
                 },
             );
