@@ -74,13 +74,19 @@ function buildPrompt(
 
         baseInstructions.push(
             "",
+            "BACKCHANNEL HANDLING (very important):",
+            "- Brief listener acknowledgments like 'yeah', 'mm-hmm', 'right', 'okay', 'sure', 'uh-huh', 'hmm', 'yep' etc.",
+            "  are called backchannels. Do NOT give these their own speaker turn.",
+            "- If a listener says only a backchannel while another speaker is talking, OMIT it entirely.",
+            "- Only create a new speaker turn when a speaker contributes substantive content (a real sentence, a question, or a meaningful response).",
+            "",
             "CRITICAL FORMATTING RULES (you MUST follow these):",
             "- Each speaker turn MUST start on its own line as: Speaker N: <text>",
             "- There MUST be exactly one blank line between every speaker turn.",
             "- NEVER merge multiple speaker turns into a single paragraph.",
             "- Preserve this formatting even for very long recordings.",
             "",
-            "Do NOT include timestamps, commentary, or analysis — only the verbatim transcription with speaker labels.",
+            "Do NOT include timestamps, commentary, or analysis - only the verbatim transcription with speaker labels.",
             "IMPORTANT: If you notice yourself repeating the same text, STOP immediately. Never output the same phrase more than twice in a row.",
             `Maintain the original language of the recording.${langHint}`,
         );
@@ -93,6 +99,77 @@ function buildPrompt(
         "Output only the verbatim transcription text. Do NOT include timestamps, speaker labels, commentary, or analysis.",
         `Maintain the original language of the recording.${langHint}`,
     ].join("\n");
+}
+
+/**
+ * Individual backchannel words. A speaker turn is considered a backchannel
+ * if ALL of its words (after punctuation stripping) appear in this set.
+ */
+const BACKCHANNEL_WORDS = new Set([
+    "yeah", "yep", "yes", "yup", "ya",
+    "mm", "mmm", "mhm", "mm-hmm", "mmhmm", "uh-huh",
+    "hmm", "hm",
+    "right", "okay", "ok", "sure", "absolutely", "exactly",
+    "no", "nah", "nope",
+    "true", "totally",
+    "correct", "indeed",
+]);
+
+/**
+ * Returns true if the text portion of a speaker turn is purely a
+ * backchannel acknowledgment (no substantive content).
+ *
+ * Works by checking if every word in the utterance is a known
+ * backchannel word. This handles compound backchannels like
+ * "Yeah, absolutely." or "Mm-hmm, right." without needing to
+ * enumerate every combination.
+ */
+function isBackchannelOnly(turnText: string): boolean {
+    // Strip the "Speaker N: " prefix
+    const content = turnText.replace(/^Speaker\s+\d+:\s*/i, "").trim();
+    if (!content) return true;
+
+    // Normalize: lowercase, strip punctuation, collapse whitespace
+    const normalized = content
+        .toLowerCase()
+        .replace(/[.,!?;:\u2026]+/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    if (!normalized) return true;
+
+    // Split into words and check if every word is a backchannel
+    const words = normalized.split(" ");
+    return words.every((w) => BACKCHANNEL_WORDS.has(w));
+}
+
+/**
+ * Remove speaker turns that contain only backchannel acknowledgments.
+ * These are brief listener noises ("yeah", "mm-hmm") that break up
+ * the flow of the transcript without adding content.
+ */
+export function removeBackchannelTurns(text: string): string {
+    const lines = text.split("\n");
+    const result: string[] = [];
+    const speakerLineRe = /^Speaker\s+\d+:/i;
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const trimmed = line.trimStart();
+
+        if (speakerLineRe.test(trimmed) && isBackchannelOnly(trimmed)) {
+            // Skip this line and any following blank line
+            if (i + 1 < lines.length && lines[i + 1].trim() === "") {
+                i++; // skip the blank line too
+            }
+            continue;
+        }
+
+        result.push(line);
+    }
+
+    // Clean up any double blank lines left behind
+    return result.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 /**
@@ -278,8 +355,11 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
         _filename: string,
         options: TranscriptionOptions,
     ): Promise<TranscriptionResult> {
+        const onProgress = options.onProgress;
+
         // Compress oversized files so Vertex AI accepts them as inline data.
         // Diarization still uses the original on-disk file (options.audioPath).
+        onProgress?.(15, "Compressing audio");
         const { buffer: audioToSend, mimeType: effectiveMimeType, wasCompressed } =
             await compressAudioIfNeeded(audioBuffer);
 
@@ -288,6 +368,7 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
         // --- Pass 1: Voice-fingerprint diarization on the full file ---
         let diarizeResult: DiarizeResult | undefined;
         if (useDiarization && options.audioPath) {
+            onProgress?.(25, "Analyzing speakers");
             diarizeResult = await this.tryDiarizeRaw(options.audioPath);
         }
 
@@ -303,76 +384,103 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
             diarizeHint,
         );
 
+        onProgress?.(40, "Transcribing");
         console.log(`[Gemini] Starting generateContent call (model=${modelId}, location=${location}, audioSize=${audioToSend.length}, diarizeSegments=${diarizeResult?.segments.length ?? 0})`);
         const callStart = Date.now();
 
-        let response;
-        try {
-            response = await ai.models.generateContent({
+        // Bun has an internal ~240-270s socket idle timeout that cannot be overridden
+        // via AbortSignal or httpOptions. Monkey-patch fetch for this call to disable
+        // Bun's idle timeout by setting the Bun-specific `timeout` option on the
+        // request init, which controls the per-request idle timeout.
+        const origFetch = globalThis.fetch;
+        globalThis.fetch = ((url: any, init: any) => {
+            return origFetch(url, {
+                ...init,
+                // Bun-specific: socket idle timeout in ms (0 = no timeout)
+                timeout: 0,
+                // Also explicitly disable Bun keepalive timeout interference
+                keepalive: true,
+            });
+        }) as typeof fetch;
+
+        let streamProgress = 40;
+
+        const callGemini = async (promptText: string, label: string) => {
+            const start = Date.now();
+            const stream = await ai.models.generateContentStream({
                 model: modelId,
                 contents: [{
                     role: "user",
                     parts: [
                         { inlineData: { mimeType: mimeTypeForGemini(effectiveMimeType), data: audioToSend.toString("base64") } },
-                        { text: prompt },
+                        { text: promptText },
                     ],
                 }],
                 config: {
                     temperature: 0.15,
                     maxOutputTokens: 65536,
                     frequencyPenalty: 0.6,
-                    httpOptions: { timeout: 1_800_000 },
+                    abortSignal: AbortSignal.timeout(1_800_000),
                 },
             });
+            const chunks: string[] = [];
+            for await (const chunk of stream) {
+                const part = chunk.text ?? "";
+                if (part) {
+                    chunks.push(part);
+                    if (onProgress) {
+                        streamProgress += (85 - streamProgress) * 0.04;
+                        onProgress(Math.round(streamProgress), "Transcribing");
+                    }
+                }
+            }
+            const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+            console.log(`[Gemini] ${label} completed in ${elapsed}s (${chunks.length} chunks)`);
+            return chunks.join("");
+        };
+
+        let raw: string;
+        try {
+            raw = await callGemini(prompt, "generateContentStream");
         } catch (geminiErr) {
             const elapsed = ((Date.now() - callStart) / 1000).toFixed(1);
             const errName = geminiErr instanceof Error ? geminiErr.name : "unknown";
             const errCode = (geminiErr as { code?: number })?.code;
-            console.error(`[Gemini] generateContent failed after ${elapsed}s: ${errName} code=${errCode}`);
+            console.error(`[Gemini] generateContentStream failed after ${elapsed}s: ${errName} code=${errCode}`);
 
-            // If we hit a TimeoutError (code 23) and were using diarization,
-            // retry once without the diarization hint as a fallback.
             if (useDiarization && diarizeHint && errCode === 23) {
-                console.warn("[Gemini] TimeoutError with diarization hint — retrying without diarization hint");
+                console.warn("[Gemini] TimeoutError with diarization hint - retrying without hint (streaming)");
                 const fallbackPrompt = buildPrompt(
                     useDiarization,
                     options.diarizationSpeakers ?? DEFAULT_SPEAKER_COUNT,
                     options.language,
-                    undefined, // no diarization hint
+                    undefined,
                 );
-                const retryStart = Date.now();
-                console.log("[Gemini] Starting fallback generateContent call (no diarize hint)...");
-                response = await ai.models.generateContent({
-                    model: modelId,
-                    contents: [{
-                        role: "user",
-                        parts: [
-                            { inlineData: { mimeType: mimeTypeForGemini(effectiveMimeType), data: audioToSend.toString("base64") } },
-                            { text: fallbackPrompt },
-                        ],
-                    }],
-                    config: {
-                        temperature: 0.15,
-                        maxOutputTokens: 65536,
-                        frequencyPenalty: 0.6,
-                        httpOptions: { timeout: 1_800_000 },
-                    },
-                });
-                console.log(`[Gemini] Fallback generateContent completed in ${((Date.now() - retryStart) / 1000).toFixed(1)}s`);
+                raw = await callGemini(fallbackPrompt, "fallback generateContentStream");
             } else {
+                globalThis.fetch = origFetch;
                 throw geminiErr;
             }
         }
 
-        console.log(`[Gemini] generateContent completed in ${((Date.now() - callStart) / 1000).toFixed(1)}s`);
+        // Restore original fetch
+        globalThis.fetch = origFetch;
 
+        console.log(`[Gemini] total generateContent time: ${((Date.now() - callStart) / 1000).toFixed(1)}s`);
 
-        const raw = response.text?.trim() ?? "";
-        const { text: cleaned, wasTruncated } = truncateRepetitionLoop(raw);
+        const trimmedRaw = raw.trim();
+        const { text: cleaned, wasTruncated } = truncateRepetitionLoop(trimmedRaw);
         if (wasTruncated) {
             console.warn(`[Gemini] Repetition loop removed. Original: ${raw.length} → ${cleaned.length} chars`);
         }
-        const text = useDiarization ? ensureSpeakerBlankLines(cleaned) : cleaned;
+        let text = useDiarization ? ensureSpeakerBlankLines(cleaned) : cleaned;
+        if (useDiarization) {
+            const before = text.length;
+            text = removeBackchannelTurns(text);
+            if (text.length < before) {
+                console.log(`[Gemini] Removed backchannel-only turns: ${before} → ${text.length} chars`);
+            }
+        }
         const compressionWarning = wasCompressed
             ? `This recording was large (>${Math.round(LARGE_AUDIO_THRESHOLD_BYTES / 1024 / 1024)} MB) and was automatically compressed to 16 kHz mono before transcription. Accuracy should be fine for speech, but audio quality artefacts or overlapping voices may be less precisely rendered.`
             : undefined;

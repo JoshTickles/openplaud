@@ -1,3 +1,5 @@
+export type ProgressCallback = (percent: number, stage: string) => void;
+
 export interface TranscriptionResult {
     text: string;
     detectedLanguage: string | null;
@@ -12,6 +14,7 @@ export interface TranscriptionOptions {
     diarizationSpeakers?: number;
     /** Absolute path to the audio file on disk (for diarization pre-pass) */
     audioPath?: string;
+    onProgress?: ProgressCallback;
 }
 
 export interface TranscriptionProvider {

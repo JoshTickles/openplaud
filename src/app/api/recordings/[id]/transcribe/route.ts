@@ -1,5 +1,4 @@
 import { and, eq } from "drizzle-orm";
-import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { recordings, transcriptions } from "@/db/schema";
 import { auth } from "@/lib/auth";
@@ -15,10 +14,10 @@ export async function POST(
         });
 
         if (!session?.user) {
-            return NextResponse.json(
-                { error: "Unauthorized" },
-                { status: 401 },
-            );
+            return new Response(JSON.stringify({ error: "Unauthorized" }), {
+                status: 401,
+                headers: { "Content-Type": "application/json" },
+            });
         }
 
         const { id } = await params;
@@ -35,9 +34,9 @@ export async function POST(
             .limit(1);
 
         if (!recording) {
-            return NextResponse.json(
-                { error: "Recording not found" },
-                { status: 404 },
+            return new Response(
+                JSON.stringify({ error: "Recording not found" }),
+                { status: 404, headers: { "Content-Type": "application/json" } },
             );
         }
 
@@ -49,7 +48,26 @@ export async function POST(
             // No body or invalid JSON — default to non-force
         }
 
-        const result = await transcribeRecording(session.user.id, id, { force });
+        const url = new URL(request.url);
+        const wantStream = url.searchParams.get("stream") === "1";
+
+        if (!wantStream) {
+            return handleJsonResponse(session.user.id, id, force);
+        }
+
+        return handleStreamResponse(session.user.id, id, force);
+    } catch (error) {
+        console.error("Error transcribing:", error);
+        return new Response(
+            JSON.stringify({ error: "Failed to transcribe recording" }),
+            { status: 500, headers: { "Content-Type": "application/json" } },
+        );
+    }
+}
+
+async function handleJsonResponse(userId: string, recordingId: string, force: boolean) {
+    try {
+        const result = await transcribeRecording(userId, recordingId, { force });
         if (!result.success) {
             const errorMessage = result.error || "Transcription failed";
             const status =
@@ -58,32 +76,107 @@ export async function POST(
                     : errorMessage === "No transcription API configured"
                       ? 400
                       : 500;
-            return NextResponse.json({ error: errorMessage }, { status });
+            return new Response(JSON.stringify({ error: errorMessage }), {
+                status,
+                headers: { "Content-Type": "application/json" },
+            });
         }
 
         const [savedTranscription] = await db
             .select()
             .from(transcriptions)
-            .where(eq(transcriptions.recordingId, id))
+            .where(eq(transcriptions.recordingId, recordingId))
             .limit(1);
 
         if (!savedTranscription) {
-            return NextResponse.json(
-                { error: "Transcription completed but no result was saved" },
-                { status: 500 },
+            return new Response(
+                JSON.stringify({ error: "Transcription completed but no result was saved" }),
+                { status: 500, headers: { "Content-Type": "application/json" } },
             );
         }
 
-        return NextResponse.json({
-            transcription: savedTranscription.text,
-            detectedLanguage: savedTranscription.detectedLanguage ?? null,
-            compressionWarning: result.compressionWarning ?? null,
-        });
+        return new Response(
+            JSON.stringify({
+                transcription: savedTranscription.text,
+                detectedLanguage: savedTranscription.detectedLanguage ?? null,
+                compressionWarning: result.compressionWarning ?? null,
+            }),
+            { headers: { "Content-Type": "application/json" } },
+        );
     } catch (error) {
         console.error("Error transcribing:", error);
-        return NextResponse.json(
-            { error: "Failed to transcribe recording" },
-            { status: 500 },
+        return new Response(
+            JSON.stringify({ error: "Failed to transcribe recording" }),
+            { status: 500, headers: { "Content-Type": "application/json" } },
         );
     }
+}
+
+function handleStreamResponse(userId: string, recordingId: string, force: boolean) {
+    const stream = new ReadableStream({
+        async start(controller) {
+            const encoder = new TextEncoder();
+            const send = (data: Record<string, unknown>) => {
+                controller.enqueue(
+                    encoder.encode(`data: ${JSON.stringify(data)}\n\n`),
+                );
+            };
+
+            const onProgress = (percent: number, stage: string) => {
+                send({ progress: percent, stage });
+            };
+
+            try {
+                const result = await transcribeRecording(userId, recordingId, {
+                    force,
+                    onProgress,
+                });
+
+                if (!result.success) {
+                    send({ error: result.error || "Transcription failed" });
+                    controller.close();
+                    return;
+                }
+
+                const [savedTranscription] = await db
+                    .select()
+                    .from(transcriptions)
+                    .where(eq(transcriptions.recordingId, recordingId))
+                    .limit(1);
+
+                if (!savedTranscription) {
+                    send({
+                        error: "Transcription completed but no result was saved",
+                    });
+                    controller.close();
+                    return;
+                }
+
+                send({
+                    progress: 100,
+                    stage: "Complete",
+                    result: {
+                        transcription: savedTranscription.text,
+                        detectedLanguage:
+                            savedTranscription.detectedLanguage ?? null,
+                        compressionWarning:
+                            result.compressionWarning ?? null,
+                    },
+                });
+            } catch (error) {
+                console.error("Error transcribing:", error);
+                send({ error: "Failed to transcribe recording" });
+            } finally {
+                controller.close();
+            }
+        },
+    });
+
+    return new Response(stream, {
+        headers: {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            Connection: "keep-alive",
+        },
+    });
 }

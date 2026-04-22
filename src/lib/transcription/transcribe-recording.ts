@@ -15,6 +15,7 @@ import {
     createTranscriptionProvider,
     inferProviderType,
 } from "./providers";
+import type { ProgressCallback } from "./providers/types";
 
 function isGoogleInlineAudioLimitError(error: unknown): boolean {
     if (!(error instanceof Error)) return false;
@@ -45,10 +46,12 @@ function fallbackPriority(providerName: string, baseUrl?: string | null): number
 export async function transcribeRecording(
     userId: string,
     recordingId: string,
-    options?: { force?: boolean },
+    options?: { force?: boolean; onProgress?: ProgressCallback },
 ): Promise<{ success: boolean; error?: string; compressionWarning?: string }> {
     let audioTempPath: string | undefined;
+    const onProgress = options?.onProgress;
     try {
+        onProgress?.(2, "Loading recording");
         const [recording] = await db
             .select()
             .from(recordings)
@@ -71,9 +74,11 @@ export async function transcribeRecording(
             .limit(1);
 
         if (existingTranscription?.text && !options?.force) {
+            onProgress?.(100, "Complete");
             return { success: true };
         }
 
+        onProgress?.(5, "Loading settings");
         const [credentials] = await db
             .select()
             .from(apiCredentials)
@@ -118,6 +123,7 @@ export async function transcribeRecording(
             credentials.baseUrl || undefined,
         );
 
+        onProgress?.(10, "Downloading audio");
         const storage = await createUserStorageProvider(userId);
         const audioBuffer = await storage.downloadFile(recording.storagePath);
 
@@ -138,6 +144,7 @@ export async function transcribeRecording(
                 : "verbose_json",
             diarizationSpeakers,
             audioPath: audioTempPath,
+            onProgress,
         } as const;
 
         let effectiveCredentials = credentials;
@@ -204,6 +211,7 @@ export async function transcribeRecording(
         const transcriptionText = result.text;
         const detectedLanguage = result.detectedLanguage;
 
+        onProgress?.(88, "Saving transcription");
         if (existingTranscription) {
             await db
                 .update(transcriptions)
@@ -228,6 +236,7 @@ export async function transcribeRecording(
         }
 
         if (autoGenerateTitle && transcriptionText.trim()) {
+            onProgress?.(92, "Generating title");
             try {
                 const generatedTitle = await generateTitleFromTranscription(
                     userId,
@@ -274,6 +283,7 @@ export async function transcribeRecording(
             }
         }
 
+        onProgress?.(100, "Complete");
         return { success: true, compressionWarning: result.compressionWarning };
     } catch (error) {
         console.error("Error transcribing recording:", error);
