@@ -1,8 +1,10 @@
 "use client";
 
-import { RefreshCw } from "lucide-react";
+import { KeyRound, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
     Select,
@@ -13,6 +15,10 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useSettings } from "@/hooks/use-settings";
+import {
+    PLAUD_SERVERS,
+    type PlaudServerKey,
+} from "@/lib/plaud/servers";
 
 const syncIntervalPresets = [
     { label: "1 minute", value: 60 * 1000 },
@@ -38,13 +44,21 @@ export function SyncSection() {
     const [syncOnMount, setSyncOnMount] = useState(true);
     const [syncOnVisibilityChange, setSyncOnVisibilityChange] = useState(true);
     const [syncNotifications, setSyncNotifications] = useState(true);
+    const [showReconnect, setShowReconnect] = useState(false);
+    const [bearerToken, setBearerToken] = useState("");
+    const [server, setServer] = useState<PlaudServerKey>("apac");
+    const [isReconnecting, setIsReconnecting] = useState(false);
+    const [connectedServer, setConnectedServer] = useState<string | null>(null);
 
     useEffect(() => {
         const fetchSettings = async () => {
             try {
-                const response = await fetch("/api/settings/user");
-                if (response.ok) {
-                    const data = await response.json();
+                const [settingsRes, connectionRes] = await Promise.all([
+                    fetch("/api/settings/user"),
+                    fetch("/api/plaud/connection"),
+                ]);
+                if (settingsRes.ok) {
+                    const data = await settingsRes.json();
                     setSyncInterval(data.syncInterval ?? 300000);
                     setAutoSyncEnabled(data.autoSyncEnabled ?? true);
                     setSyncOnMount(data.syncOnMount ?? true);
@@ -52,6 +66,13 @@ export function SyncSection() {
                         data.syncOnVisibilityChange ?? true,
                     );
                     setSyncNotifications(data.syncNotifications ?? true);
+                }
+                if (connectionRes.ok) {
+                    const conn = await connectionRes.json();
+                    if (conn.server) {
+                        setServer(conn.server);
+                        setConnectedServer(conn.server);
+                    }
                 }
             } catch (error) {
                 console.error("Failed to fetch settings:", error);
@@ -61,6 +82,36 @@ export function SyncSection() {
         };
         fetchSettings();
     }, [setIsLoadingSettings]);
+
+    const handleReconnect = async () => {
+        const token = bearerToken.trim().replace(/^Bearer\s+/i, "");
+        if (!token) {
+            toast.error("Please enter your bearer token");
+            return;
+        }
+        setIsReconnecting(true);
+        try {
+            const response = await fetch("/api/plaud/connect", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ bearerToken: token, server }),
+            });
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.error || "Failed to connect");
+            }
+            toast.success("Plaud reconnected successfully");
+            setBearerToken("");
+            setShowReconnect(false);
+            setConnectedServer(server);
+        } catch (error) {
+            toast.error(
+                error instanceof Error ? error.message : "Failed to reconnect",
+            );
+        } finally {
+            setIsReconnecting(false);
+        }
+    };
 
     const handleSyncSettingChange = async (updates: {
         syncInterval?: number;
@@ -141,6 +192,77 @@ export function SyncSection() {
                 Sync Settings
             </h2>
             <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                    <div className="space-y-0.5 flex-1">
+                        <Label className="text-base">Plaud Connection</Label>
+                        <p className="text-sm text-muted-foreground">
+                            {connectedServer
+                                ? `Connected via ${PLAUD_SERVERS[connectedServer as PlaudServerKey]?.label ?? connectedServer}`
+                                : "Not connected"}
+                        </p>
+                    </div>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowReconnect(!showReconnect)}
+                    >
+                        <KeyRound className="w-4 h-4 mr-2" />
+                        {showReconnect ? "Cancel" : "Update Token"}
+                    </Button>
+                </div>
+
+                {showReconnect && (
+                    <div className="space-y-3 rounded-lg border p-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="reconnect-server">API Server</Label>
+                            <Select
+                                value={server}
+                                onValueChange={(v) =>
+                                    setServer(v as PlaudServerKey)
+                                }
+                            >
+                                <SelectTrigger
+                                    id="reconnect-server"
+                                    disabled={isReconnecting}
+                                >
+                                    <SelectValue placeholder="Select API server" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {(
+                                        Object.entries(PLAUD_SERVERS) as [
+                                            PlaudServerKey,
+                                            (typeof PLAUD_SERVERS)[PlaudServerKey],
+                                        ][]
+                                    ).map(([key, s]) => (
+                                        <SelectItem key={key} value={key}>
+                                            {s.label}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="reconnect-token">Bearer Token</Label>
+                            <Input
+                                id="reconnect-token"
+                                type="text"
+                                placeholder="Bearer ..."
+                                value={bearerToken}
+                                onChange={(e) => setBearerToken(e.target.value)}
+                                disabled={isReconnecting}
+                                className="font-mono text-sm"
+                            />
+                        </div>
+                        <Button
+                            onClick={handleReconnect}
+                            disabled={isReconnecting}
+                            className="w-full"
+                        >
+                            {isReconnecting ? "Connecting..." : "Reconnect"}
+                        </Button>
+                    </div>
+                )}
+
                 <div className="flex items-center justify-between">
                     <div className="space-y-0.5 flex-1">
                         <Label htmlFor="auto-sync" className="text-base">
