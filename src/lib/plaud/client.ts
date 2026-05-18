@@ -48,7 +48,6 @@ export class PlaudClient {
         const url = `${this.apiBase}${endpoint}`;
 
         try {
-            console.log(`[Plaud] ${options?.method || "GET"} ${endpoint}`);
             const response = await fetch(url, {
                 ...options,
                 headers: {
@@ -57,7 +56,6 @@ export class PlaudClient {
                     "Content-Type": "application/json",
                 },
             });
-            console.log(`[Plaud] ${endpoint} → ${response.status}`);
 
             if (response.status === 429 && retryCount < MAX_RETRIES) {
                 const retryAfter = response.headers.get("Retry-After");
