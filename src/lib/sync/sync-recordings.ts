@@ -255,6 +255,8 @@ export async function syncRecordingsForUser(
         let hasMore = true;
         let consecutiveEmptyPages = 0;
 
+        console.log(`[Sync] Starting sync for user ${userId}`);
+
         while (hasMore && page < SYNC_CONFIG.MAX_PAGES) {
             const skip = page * SYNC_CONFIG.PAGE_SIZE;
             const recordingsResponse = await plaudClient.getRecordings(
@@ -266,6 +268,7 @@ export async function syncRecordingsForUser(
             );
 
             const plaudRecordings = recordingsResponse.data_file_list;
+            console.log(`[Sync] Page ${page}: ${plaudRecordings.length} recordings from Plaud API`);
 
             if (plaudRecordings.length === 0) {
                 break;
@@ -356,6 +359,10 @@ export async function syncRecordingsForUser(
                 console.error("Failed to flag upstream-deleted recordings:", cleanupError);
             }
         }
+
+        console.log(
+            `[Sync] Complete: ${result.newRecordings} new, ${result.updatedRecordings} updated, ${result.removedRecordings} removed, ${result.errors.length} errors`,
+        );
 
         // Update last sync time
         await db
