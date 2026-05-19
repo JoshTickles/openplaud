@@ -43,23 +43,28 @@ export async function POST(
         }
 
         let force = false;
+        let speakerCountOverride: number | undefined;
         try {
             const body = await request.json();
             force = body?.force === true;
+            const raw = body?.speakerCount;
+            if (typeof raw === "number" && Number.isFinite(raw) && raw >= 1 && raw <= 10) {
+                speakerCountOverride = Math.floor(raw);
+            }
         } catch {
-            // No body or invalid JSON — default to non-force
+            // No body or invalid JSON — default to non-force, no override
         }
 
         const url = new URL(request.url);
         const wantStream = url.searchParams.get("stream") === "1" ||
             request.headers.get("accept")?.includes("text/event-stream") === true;
-        console.log(`[Transcribe] stream=${wantStream}, force=${force}, url=${request.url}, accept=${request.headers.get("accept")}`);
+        console.log(`[Transcribe] stream=${wantStream}, force=${force}, speakers=${speakerCountOverride ?? "auto"}, url=${request.url}, accept=${request.headers.get("accept")}`);
 
         if (!wantStream) {
-            return handleJsonResponse(session.user.id, id, force);
+            return handleJsonResponse(session.user.id, id, force, speakerCountOverride);
         }
 
-        return handleStreamResponse(session.user.id, id, force);
+        return handleStreamResponse(session.user.id, id, force, speakerCountOverride);
     } catch (error) {
         console.error("Error transcribing:", error);
         return new Response(
@@ -69,9 +74,17 @@ export async function POST(
     }
 }
 
-async function handleJsonResponse(userId: string, recordingId: string, force: boolean) {
+async function handleJsonResponse(
+    userId: string,
+    recordingId: string,
+    force: boolean,
+    speakerCountOverride?: number,
+) {
     try {
-        const result = await transcribeRecording(userId, recordingId, { force });
+        const result = await transcribeRecording(userId, recordingId, {
+            force,
+            speakerCountOverride,
+        });
         if (!result.success) {
             const errorMessage = result.error || "Transcription failed";
             const status =
@@ -116,7 +129,12 @@ async function handleJsonResponse(userId: string, recordingId: string, force: bo
     }
 }
 
-function handleStreamResponse(userId: string, recordingId: string, force: boolean) {
+function handleStreamResponse(
+    userId: string,
+    recordingId: string,
+    force: boolean,
+    speakerCountOverride?: number,
+) {
     const stream = new ReadableStream({
         async start(controller) {
             const encoder = new TextEncoder();
@@ -133,6 +151,7 @@ function handleStreamResponse(userId: string, recordingId: string, force: boolea
             try {
                 const result = await transcribeRecording(userId, recordingId, {
                     force,
+                    speakerCountOverride,
                     onProgress,
                 });
 

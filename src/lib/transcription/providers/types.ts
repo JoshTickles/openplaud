@@ -12,6 +12,8 @@ export interface TranscriptionOptions {
     model: string;
     responseFormat?: string;
     diarizationSpeakers?: number;
+    /** Exact speaker count, set when the user has explicitly overridden detection for this run. */
+    speakerCountOverride?: number;
     /** Absolute path to the audio file on disk (for diarization pre-pass) */
     audioPath?: string;
     onProgress?: ProgressCallback;

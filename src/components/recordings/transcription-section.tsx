@@ -7,6 +7,13 @@ import { LEDIndicator } from "@/components/led-indicator";
 import { MetalButton } from "@/components/metal-button";
 import { Panel } from "@/components/panel";
 import { Button } from "@/components/ui/button";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 
 interface TranscriptionSectionProps {
     recordingId: string;
@@ -32,6 +39,7 @@ export function TranscriptionSection({
     const [isPullingPlaud, setIsPullingPlaud] = useState(false);
     const [progress, setProgress] = useState(0);
     const [progressStage, setProgressStage] = useState("");
+    const [speakerCount, setSpeakerCount] = useState<string>("auto");
 
     const isLongRecording = (duration ?? 0) > 60 * 60 * 1000;
     const showPlaudOption = isLongRecording && !!plaudFileId;
@@ -61,6 +69,8 @@ export function TranscriptionSection({
 
     const handleTranscribe = async () => {
         const isRetranscribe = !!transcription;
+        const overrideCount = speakerCount === "auto" ? undefined : Number(speakerCount);
+        const hasBody = isRetranscribe || overrideCount !== undefined;
         setIsProcessing(true);
         setProgress(0);
         setProgressStage("Starting");
@@ -71,10 +81,15 @@ export function TranscriptionSection({
                 {
                     method: "POST",
                     headers: {
-                        ...(isRetranscribe ? { "Content-Type": "application/json" } : {}),
+                        ...(hasBody ? { "Content-Type": "application/json" } : {}),
                         "Accept": "text/event-stream",
                     },
-                    body: isRetranscribe ? JSON.stringify({ force: true }) : undefined,
+                    body: hasBody
+                        ? JSON.stringify({
+                              ...(isRetranscribe ? { force: true } : {}),
+                              ...(overrideCount !== undefined ? { speakerCount: overrideCount } : {}),
+                          })
+                        : undefined,
                 },
             );
 
@@ -178,18 +193,42 @@ export function TranscriptionSection({
                             </span>
                         )}
                     </div>
-                    <MetalButton
-                        onClick={handleTranscribe}
-                        variant="cyan"
-                        disabled={isProcessing}
-                        className="w-full md:w-auto"
-                    >
-                        {isProcessing
-                            ? "Processing..."
-                            : transcription
-                              ? "Re-transcribe"
-                              : "Transcribe"}
-                    </MetalButton>
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full md:w-auto">
+                        <div className="flex items-center gap-2">
+                            <span className="text-label text-xs whitespace-nowrap">
+                                Speakers
+                            </span>
+                            <Select
+                                value={speakerCount}
+                                onValueChange={setSpeakerCount}
+                                disabled={isProcessing}
+                            >
+                                <SelectTrigger className="w-[110px]">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="auto">Auto</SelectItem>
+                                    {[2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+                                        <SelectItem key={n} value={String(n)}>
+                                            {n}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <MetalButton
+                            onClick={handleTranscribe}
+                            variant="cyan"
+                            disabled={isProcessing}
+                            className="w-full sm:w-auto"
+                        >
+                            {isProcessing
+                                ? "Processing..."
+                                : transcription
+                                  ? "Re-transcribe"
+                                  : "Transcribe"}
+                        </MetalButton>
+                    </div>
                 </div>
 
                 {isProcessing && (

@@ -55,6 +55,8 @@ export async function runDiarization(
         minSpeakers?: number;
         maxSpeakers?: number;
         numSpeakers?: number;
+        /** Post-pass merge clusters whose centroid cosine similarity >= this. */
+        mergeThreshold?: number;
     },
 ): Promise<DiarizeResult> {
     const args = [DIARIZE_SCRIPT, audioPath];
@@ -67,6 +69,9 @@ export async function runDiarization(
         }
         if (options?.maxSpeakers != null) {
             args.push("--max-speakers", String(options.maxSpeakers));
+        }
+        if (options?.mergeThreshold != null) {
+            args.push("--merge-threshold", String(options.mergeThreshold));
         }
     }
 

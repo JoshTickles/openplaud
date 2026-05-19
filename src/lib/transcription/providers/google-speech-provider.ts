@@ -373,7 +373,7 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
             onProgress?.(25, "Analyzing speakers");
             diarizeResult = await this.tryDiarizeRaw(
                 options.audioPath,
-                options.diarizationSpeakers,
+                options.speakerCountOverride,
             );
         }
 
@@ -499,7 +499,7 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
      */
     private async tryDiarizeRaw(
         audioPath: string,
-        speakerCountHint?: number,
+        exactSpeakerCount?: number,
     ): Promise<DiarizeResult | undefined> {
         try {
             const available = await isDiarizationAvailable();
@@ -508,9 +508,18 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
                 return undefined;
             }
 
-            console.log(`[Gemini] Running voice-fingerprint diarization on ${audioPath} (speakerHint=${speakerCountHint ?? "auto"})...`);
+            // Explicit override → exact count. Otherwise cap max + a very
+            // conservative post-pass merge: only collapses clusters whose
+            // centroids are nearly identical (sim >= 0.7). Real over-
+            // clustering on meeting audio tends to come from genuine
+            // embedding separation (mic distance, room position), so the
+            // user-facing override is the primary fix.
+            const diarizeOpts = exactSpeakerCount
+                ? { numSpeakers: exactSpeakerCount }
+                : { maxSpeakers: 8, mergeThreshold: 0.7 };
+            console.log(`[Gemini] Running voice-fingerprint diarization on ${audioPath} (${exactSpeakerCount ? `exact=${exactSpeakerCount}` : "auto, max=8"})...`);
             const start = Date.now();
-            const result = await runDiarization(audioPath);
+            const result = await runDiarization(audioPath, diarizeOpts);
             const elapsed = ((Date.now() - start) / 1000).toFixed(1);
             console.log(
                 `[Gemini] Diarization complete in ${elapsed}s: ` +

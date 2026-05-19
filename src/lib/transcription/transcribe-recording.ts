@@ -46,7 +46,11 @@ function fallbackPriority(providerName: string, baseUrl?: string | null): number
 export async function transcribeRecording(
     userId: string,
     recordingId: string,
-    options?: { force?: boolean; onProgress?: ProgressCallback },
+    options?: {
+        force?: boolean;
+        onProgress?: ProgressCallback;
+        speakerCountOverride?: number;
+    },
 ): Promise<{ success: boolean; error?: string; compressionWarning?: string }> {
     let audioTempPath: string | undefined;
     const onProgress = options?.onProgress;
@@ -142,6 +146,7 @@ export async function transcribeRecording(
                 ? "diarized_json"
                 : "verbose_json",
             diarizationSpeakers,
+            speakerCountOverride: options?.speakerCountOverride,
             audioPath: audioTempPath,
             onProgress,
         } as const;
