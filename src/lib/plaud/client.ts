@@ -16,6 +16,8 @@ export interface PlaudUpdateFilenameResponse {
 export const DEFAULT_PLAUD_API_BASE = PLAUD_SERVERS[DEFAULT_SERVER_KEY].apiBase;
 const MAX_RETRIES = 3;
 const INITIAL_RETRY_DELAY = 1000; // 1 second
+const USER_AGENT =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
 
 /**
  * Sleep for specified milliseconds
@@ -54,6 +56,8 @@ export class PlaudClient {
                     ...options?.headers,
                     Authorization: `Bearer ${this.bearerToken}`,
                     "Content-Type": "application/json",
+                    "User-Agent": USER_AGENT,
+                    Accept: "application/json, text/plain, */*",
                 },
             });
 
