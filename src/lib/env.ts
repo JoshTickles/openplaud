@@ -21,7 +21,7 @@ const envSchema = z.object({
         .default("vertex"),
     LITELLM_TRANSCRIBE_BASE_URL: z.string().optional(),
     LITELLM_TRANSCRIBE_API_KEY: z.string().optional(),
-    LITELLM_TRANSCRIBE_MODEL: z.string().optional().default("gemini-2.5-flash"),
+    LITELLM_TRANSCRIBE_MODEL: z.string().optional().default("litellm/gemini-flash"),
 
     DEFAULT_STORAGE_TYPE: z.enum(["local", "s3"]).optional().default("local"),
     LOCAL_STORAGE_PATH: z.string().optional().default("./storage"),

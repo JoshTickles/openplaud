@@ -380,7 +380,7 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
         ).replace(/\/$/, "");
         this.litellmApiKey = process.env.LITELLM_TRANSCRIBE_API_KEY || "";
         this.litellmModel =
-            process.env.LITELLM_TRANSCRIBE_MODEL || "gemini-2.5-flash";
+            process.env.LITELLM_TRANSCRIBE_MODEL || "litellm/gemini-flash";
 
         this.projectId = process.env.GOOGLE_PROJECT_ID || "";
         this.defaultLocation = process.env.GOOGLE_LOCATION || "us-central1";
@@ -396,7 +396,7 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
     /**
      * Send audio + prompt to a LiteLLM proxy chat-completions endpoint using
      * the OpenAI `input_audio` content block. Returns the raw model text.
-     * The multimodal model (e.g. gemini-2.5-flash) transcribes and applies
+     * The multimodal model (e.g. litellm/gemini-flash) transcribes and applies
      * speaker labels directly, so the same prompt as the Vertex path works.
      */
     private async callViaLiteLLM(
