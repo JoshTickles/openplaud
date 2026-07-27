@@ -13,6 +13,16 @@ const envSchema = z.object({
     // encryption code is responsible for enforcing a strong key at runtime.
     ENCRYPTION_KEY: z.string().optional(),
 
+    // Transcription backend: "vertex" (direct Vertex AI) or "litellm"
+    // (audio sent to a LiteLLM proxy chat-completions endpoint).
+    TRANSCRIPTION_BACKEND: z
+        .enum(["vertex", "litellm"])
+        .optional()
+        .default("vertex"),
+    LITELLM_TRANSCRIBE_BASE_URL: z.string().optional(),
+    LITELLM_TRANSCRIBE_API_KEY: z.string().optional(),
+    LITELLM_TRANSCRIBE_MODEL: z.string().optional().default("gemini-2.5-flash"),
+
     DEFAULT_STORAGE_TYPE: z.enum(["local", "s3"]).optional().default("local"),
     LOCAL_STORAGE_PATH: z.string().optional().default("./storage"),
     S3_ENDPOINT: z.string().optional(),

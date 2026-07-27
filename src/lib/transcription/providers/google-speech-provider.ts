@@ -332,16 +332,110 @@ async function compressAudioIfNeeded(
     }
 }
 
+type TranscribeBackend = "vertex" | "litellm";
+
+/**
+ * Shared post-processing for raw model output, used by both the Vertex and
+ * LiteLLM backends: repetition-loop removal, speaker blank-line normalisation,
+ * backchannel-turn cleanup, and the compression warning.
+ */
+function finalizeTranscript(
+    raw: string,
+    useDiarization: boolean,
+    wasCompressed: boolean,
+): TranscriptionResult {
+    const { text: cleaned, wasTruncated } = truncateRepetitionLoop(raw.trim());
+    if (wasTruncated) {
+        console.warn(`[Transcribe] Repetition loop removed. Original: ${raw.length} → ${cleaned.length} chars`);
+    }
+    let text = useDiarization ? ensureSpeakerBlankLines(cleaned) : cleaned;
+    if (useDiarization) {
+        const before = text.length;
+        text = removeBackchannelTurns(text);
+        if (text.length < before) {
+            console.log(`[Transcribe] Removed backchannel-only turns: ${before} → ${text.length} chars`);
+        }
+    }
+    const compressionWarning = wasCompressed
+        ? `This recording was large (>${Math.round(LARGE_AUDIO_THRESHOLD_BYTES / 1024 / 1024)} MB) and was automatically compressed to 16 kHz mono before transcription. Accuracy should be fine for speech, but audio quality artefacts or overlapping voices may be less precisely rendered.`
+        : undefined;
+    return { text, detectedLanguage: null, compressionWarning };
+}
+
 export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider {
     private readonly projectId: string;
     private readonly defaultLocation: string;
+    private readonly backend: TranscribeBackend;
+    private readonly litellmBaseUrl: string;
+    private readonly litellmApiKey: string;
+    private readonly litellmModel: string;
 
     constructor(_apiKey: string, _baseURL?: string) {
+        this.backend =
+            process.env.TRANSCRIPTION_BACKEND === "litellm"
+                ? "litellm"
+                : "vertex";
+        this.litellmBaseUrl = (
+            process.env.LITELLM_TRANSCRIBE_BASE_URL || ""
+        ).replace(/\/$/, "");
+        this.litellmApiKey = process.env.LITELLM_TRANSCRIBE_API_KEY || "";
+        this.litellmModel =
+            process.env.LITELLM_TRANSCRIBE_MODEL || "gemini-2.5-flash";
+
         this.projectId = process.env.GOOGLE_PROJECT_ID || "";
-        if (!this.projectId) {
+        this.defaultLocation = process.env.GOOGLE_LOCATION || "us-central1";
+
+        if (this.backend === "vertex" && !this.projectId) {
             throw new Error("GOOGLE_PROJECT_ID environment variable is required for Gemini provider");
         }
-        this.defaultLocation = process.env.GOOGLE_LOCATION || "us-central1";
+        if (this.backend === "litellm" && !this.litellmBaseUrl) {
+            throw new Error("LITELLM_TRANSCRIBE_BASE_URL is required when TRANSCRIPTION_BACKEND=litellm");
+        }
+    }
+
+    /**
+     * Send audio + prompt to a LiteLLM proxy chat-completions endpoint using
+     * the OpenAI `input_audio` content block. Returns the raw model text.
+     * The multimodal model (e.g. gemini-2.5-flash) transcribes and applies
+     * speaker labels directly, so the same prompt as the Vertex path works.
+     */
+    private async callViaLiteLLM(
+        audioBase64: string,
+        audioFormat: string,
+        promptText: string,
+    ): Promise<string> {
+        const res = await fetch(`${this.litellmBaseUrl}/chat/completions`, {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${this.litellmApiKey}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                model: this.litellmModel,
+                temperature: 0.15,
+                messages: [
+                    {
+                        role: "user",
+                        content: [
+                            { type: "text", text: promptText },
+                            {
+                                type: "input_audio",
+                                input_audio: { data: audioBase64, format: audioFormat },
+                            },
+                        ],
+                    },
+                ],
+            }),
+            signal: AbortSignal.timeout(1_800_000),
+        });
+        if (!res.ok) {
+            const body = await res.text();
+            throw new Error(`LiteLLM transcribe ${res.status}: ${body.slice(0, 400)}`);
+        }
+        const json = (await res.json()) as {
+            choices?: { message?: { content?: string } }[];
+        };
+        return json.choices?.[0]?.message?.content ?? "";
     }
 
     /** Gemini 3+ models must use 'global' location on Vertex AI */
@@ -377,10 +471,6 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
             );
         }
 
-        const modelId = this.resolveModel(options.model);
-        const location = this.locationForModel(modelId);
-        const ai = new GoogleGenAI({ vertexai: true, project: this.projectId, location });
-
         const diarizeHint = diarizeResult ? formatDiarizeHint(diarizeResult) : undefined;
         const prompt = buildPrompt(
             useDiarization,
@@ -390,8 +480,40 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
         );
 
         onProgress?.(40, "Transcribing");
-        console.log(`[Gemini] Starting generateContent call (model=${modelId}, location=${location}, audioSize=${audioToSend.length}, diarizeSegments=${diarizeResult?.segments.length ?? 0})`);
         const callStart = Date.now();
+
+        // --- LiteLLM proxy backend: audio via chat-completions input_audio ---
+        if (this.backend === "litellm") {
+            const audioFormat =
+                mimeTypeForGemini(effectiveMimeType).replace("audio/", "") ||
+                "mp3";
+            const audioB64 = audioToSend.toString("base64");
+            console.log(`[LiteLLM] Starting chat transcribe (model=${this.litellmModel}, audioSize=${audioToSend.length}, format=${audioFormat}, diarizeSegments=${diarizeResult?.segments.length ?? 0})`);
+            let rawLL: string;
+            try {
+                rawLL = await this.callViaLiteLLM(audioB64, audioFormat, prompt);
+            } catch (err) {
+                if (useDiarization && diarizeHint) {
+                    console.warn("[LiteLLM] transcribe failed with hint - retrying without hint:", err);
+                    const fallbackPrompt = buildPrompt(
+                        useDiarization,
+                        options.diarizationSpeakers ?? DEFAULT_SPEAKER_COUNT,
+                        options.language,
+                        undefined,
+                    );
+                    rawLL = await this.callViaLiteLLM(audioB64, audioFormat, fallbackPrompt);
+                } else {
+                    throw err;
+                }
+            }
+            console.log(`[LiteLLM] transcribe completed in ${((Date.now() - callStart) / 1000).toFixed(1)}s`);
+            return finalizeTranscript(rawLL, useDiarization, wasCompressed);
+        }
+
+        const modelId = this.resolveModel(options.model);
+        const location = this.locationForModel(modelId);
+        const ai = new GoogleGenAI({ vertexai: true, project: this.projectId, location });
+        console.log(`[Gemini] Starting generateContent call (model=${modelId}, location=${location}, audioSize=${audioToSend.length}, diarizeSegments=${diarizeResult?.segments.length ?? 0})`);
 
         // Bun has an internal ~240-270s socket idle timeout that cannot be overridden
         // via AbortSignal or httpOptions. Monkey-patch fetch for this call to disable
@@ -473,23 +595,7 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
 
         console.log(`[Gemini] total generateContent time: ${((Date.now() - callStart) / 1000).toFixed(1)}s`);
 
-        const trimmedRaw = raw.trim();
-        const { text: cleaned, wasTruncated } = truncateRepetitionLoop(trimmedRaw);
-        if (wasTruncated) {
-            console.warn(`[Gemini] Repetition loop removed. Original: ${raw.length} → ${cleaned.length} chars`);
-        }
-        let text = useDiarization ? ensureSpeakerBlankLines(cleaned) : cleaned;
-        if (useDiarization) {
-            const before = text.length;
-            text = removeBackchannelTurns(text);
-            if (text.length < before) {
-                console.log(`[Gemini] Removed backchannel-only turns: ${before} → ${text.length} chars`);
-            }
-        }
-        const compressionWarning = wasCompressed
-            ? `This recording was large (>${Math.round(LARGE_AUDIO_THRESHOLD_BYTES / 1024 / 1024)} MB) and was automatically compressed to 16 kHz mono before transcription. Accuracy should be fine for speech, but audio quality artefacts or overlapping voices may be less precisely rendered.`
-            : undefined;
-        return { text, detectedLanguage: null, compressionWarning };
+        return finalizeTranscript(raw, useDiarization, wasCompressed);
     }
 
     /**
