@@ -11,6 +11,7 @@ import { StorageSection } from "./settings-sections/storage-section";
 import { SyncSection } from "./settings-sections/sync-section";
 import { TagsSection } from "./settings-sections/tags-section";
 import { TranscriptionSection } from "./settings-sections/transcription-section";
+import { VoiceprintsSection } from "./settings-sections/voiceprints-section";
 
 interface Provider {
     id: string;
@@ -56,6 +57,8 @@ export function SettingsContent({
             return <StorageSection />;
         case "obsidian":
             return <ObsidianSection />;
+        case "voiceprints":
+            return <VoiceprintsSection />;
         case "tags":
             return <TagsSection tags={tags} onTagsChanged={onTagsChanged} />;
         default:

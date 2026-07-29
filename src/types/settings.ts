@@ -12,4 +12,5 @@ export type SettingsSection =
     | "notifications"
     | "export"
     | "obsidian"
+    | "voiceprints"
     | "tags";
