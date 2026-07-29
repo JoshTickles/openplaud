@@ -49,10 +49,45 @@ export function SpeakerLabelEditor({
     const [localMap, setLocalMap] = useState<Record<string, string>>({});
     const [isSaving, setIsSaving] = useState(false);
     const [isExpanded, setIsExpanded] = useState(false);
+    // Voiceprint suggestions keyed by transcript label ("Speaker 1"), with the
+    // matched similarity for a confidence hint.
+    const [suggestions, setSuggestions] = useState<
+        Record<string, { name: string; similarity: number }>
+    >({});
 
     useEffect(() => {
         setLocalMap(speakerMap ?? {});
     }, [speakerMap]);
+
+    // Fetch name suggestions from the voiceprint library once per recording.
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await fetch(
+                    `/api/recordings/${recordingId}/speaker-map`,
+                );
+                if (!res.ok) return;
+                const data = await res.json();
+                // API keys suggestions by diarize label SPEAKER_NN; map to the
+                // transcript's "Speaker N" (N = NN+1) that the editor renders.
+                const raw: Record<string, { name: string; similarity: number }> =
+                    data.suggestions ?? {};
+                const mapped: typeof raw = {};
+                for (const [label, s] of Object.entries(raw)) {
+                    const m = label.match(/SPEAKER_(\d+)/i);
+                    if (!m) continue;
+                    mapped[`Speaker ${Number(m[1]) + 1}`] = s;
+                }
+                if (!cancelled) setSuggestions(mapped);
+            } catch {
+                // Suggestions are best-effort; silence is fine.
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [recordingId]);
 
     const hasChanges = useMemo(() => {
         const saved = speakerMap ?? {};
@@ -119,7 +154,10 @@ export function SpeakerLabelEditor({
 
             {isExpanded && (
                 <div className="grid gap-2 pl-6">
-                    {speakers.map((speaker, idx) => (
+                    {speakers.map((speaker, idx) => {
+                        const suggestion = suggestions[speaker];
+                        const isUnnamed = !(localMap[speaker] ?? "").trim();
+                        return (
                         <div key={speaker} className="flex items-center gap-2">
                             <span
                                 className="w-3 h-3 rounded-full shrink-0"
@@ -137,15 +175,35 @@ export function SpeakerLabelEditor({
                                         [speaker]: e.target.value,
                                     }))
                                 }
-                                placeholder="Enter real name..."
+                                placeholder={
+                                    suggestion
+                                        ? `${suggestion.name}?`
+                                        : "Enter real name..."
+                                }
                                 className="h-7 text-xs flex-1"
                                 maxLength={100}
                                 onKeyDown={(e) => {
                                     if (e.key === "Enter" && hasChanges) handleSave();
                                 }}
                             />
+                            {suggestion && isUnnamed && (
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        setLocalMap((prev) => ({
+                                            ...prev,
+                                            [speaker]: suggestion.name,
+                                        }))
+                                    }
+                                    className="text-xs px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+                                    title={`Matched ${Math.round(suggestion.similarity * 100)}% from a previous recording`}
+                                >
+                                    {suggestion.name} · {Math.round(suggestion.similarity * 100)}%
+                                </button>
+                            )}
                         </div>
-                    ))}
+                        );
+                    })}
                     {hasChanges && (
                         <div className="flex justify-end pt-1">
                             <Button

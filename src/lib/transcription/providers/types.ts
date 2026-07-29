@@ -5,6 +5,8 @@ export interface TranscriptionResult {
     detectedLanguage: string | null;
     /** Set when audio was downsampled before upload due to file size. */
     compressionWarning?: string;
+    /** Per-speaker diarization centroids (SPEAKER_NN -> embedding), when available. */
+    speakerCentroids?: Record<string, number[]>;
 }
 
 export interface TranscriptionOptions {

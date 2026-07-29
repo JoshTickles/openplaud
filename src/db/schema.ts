@@ -185,6 +185,11 @@ export const transcriptions = pgTable(
         provider: varchar("provider", { length: 100 }).notNull(), // e.g., 'openai', 'groq', 'browser'
         model: varchar("model", { length: 100 }).notNull(), // e.g., 'whisper-1', 'whisper-large-v3-turbo', 'whisper-base'
         speakerMap: jsonb("speaker_map").$type<Record<string, string>>(),
+        // Per-speaker diarization centroids (SPEAKER_NN -> embedding), kept so
+        // speaker names can be matched/enrolled against the voiceprint library.
+        speakerCentroids: jsonb("speaker_centroids").$type<
+            Record<string, number[]>
+        >(),
         createdAt: timestamp("created_at").notNull().defaultNow(),
     },
     (table) => ({
@@ -378,5 +383,31 @@ export const recordingTagAssignments = pgTable(
         ),
         tagIdIdx: index("tag_assignments_tag_id_idx").on(table.tagId),
         uniqueAssignment: unique().on(table.recordingId, table.tagId),
+    }),
+);
+
+// Per-user speaker voiceprints: a named person's averaged voice embedding,
+// used to auto-suggest speaker names on new recordings by matching the
+// diarization centroids against this library.
+export const speakerVoiceprints = pgTable(
+    "speaker_voiceprints",
+    {
+        id: text("id")
+            .primaryKey()
+            .$defaultFn(() => nanoid()),
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
+        name: varchar("name", { length: 100 }).notNull(),
+        // L2-normalised mean embedding (wespeaker, 256-dim as of current lib).
+        embedding: jsonb("embedding").$type<number[]>().notNull(),
+        // Number of confirmed samples averaged into this voiceprint.
+        sampleCount: integer("sample_count").notNull().default(1),
+        createdAt: timestamp("created_at").notNull().defaultNow(),
+        updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    },
+    (table) => ({
+        userIdIdx: index("speaker_voiceprints_user_id_idx").on(table.userId),
+        userNameUnique: unique().on(table.userId, table.name),
     }),
 );

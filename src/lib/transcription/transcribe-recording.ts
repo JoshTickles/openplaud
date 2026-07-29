@@ -216,6 +216,7 @@ export async function transcribeRecording(
         const detectedLanguage = result.detectedLanguage;
 
         onProgress?.(88, "Saving transcription");
+        const speakerCentroids = result.speakerCentroids ?? null;
         if (existingTranscription) {
             await db
                 .update(transcriptions)
@@ -225,6 +226,7 @@ export async function transcribeRecording(
                     transcriptionType: "server",
                     provider: effectiveCredentials.provider,
                     model: effectiveCredentials.defaultModel || "whisper-1",
+                    speakerCentroids,
                 })
                 .where(eq(transcriptions.id, existingTranscription.id));
         } else {
@@ -236,6 +238,7 @@ export async function transcribeRecording(
                 transcriptionType: "server",
                 provider: effectiveCredentials.provider,
                 model: effectiveCredentials.defaultModel || "whisper-1",
+                speakerCentroids,
             });
         }
 

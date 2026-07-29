@@ -343,6 +343,7 @@ function finalizeTranscript(
     raw: string,
     useDiarization: boolean,
     wasCompressed: boolean,
+    speakerCentroids?: Record<string, number[]>,
 ): TranscriptionResult {
     const { text: cleaned, wasTruncated } = truncateRepetitionLoop(raw.trim());
     if (wasTruncated) {
@@ -359,7 +360,7 @@ function finalizeTranscript(
     const compressionWarning = wasCompressed
         ? `This recording was large (>${Math.round(LARGE_AUDIO_THRESHOLD_BYTES / 1024 / 1024)} MB) and was automatically compressed to 16 kHz mono before transcription. Accuracy should be fine for speech, but audio quality artefacts or overlapping voices may be less precisely rendered.`
         : undefined;
-    return { text, detectedLanguage: null, compressionWarning };
+    return { text, detectedLanguage: null, compressionWarning, speakerCentroids };
 }
 
 export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider {
@@ -507,7 +508,7 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
                 }
             }
             console.log(`[LiteLLM] transcribe completed in ${((Date.now() - callStart) / 1000).toFixed(1)}s`);
-            return finalizeTranscript(rawLL, useDiarization, wasCompressed);
+            return finalizeTranscript(rawLL, useDiarization, wasCompressed, diarizeResult?.centroids);
         }
 
         const modelId = this.resolveModel(options.model);
@@ -595,7 +596,7 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
 
         console.log(`[Gemini] total generateContent time: ${((Date.now() - callStart) / 1000).toFixed(1)}s`);
 
-        return finalizeTranscript(raw, useDiarization, wasCompressed);
+        return finalizeTranscript(raw, useDiarization, wasCompressed, diarizeResult?.centroids);
     }
 
     /**

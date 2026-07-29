@@ -59,6 +59,22 @@ def _configure_threads() -> None:
     _wr.Speaker.__init__ = _patched_init
 
 
+def _cluster_centroids(embeddings, labels):
+    """Return {label:int -> L2-normalised mean embedding (list[float])} for
+    each cluster. Used both by the merge pass and to emit per-speaker
+    voiceprints for cross-recording speaker identity matching.
+    """
+    import numpy as np
+
+    out = {}
+    for u in sorted(set(int(x) for x in labels.tolist())):
+        c = embeddings[labels == u].mean(axis=0)
+        n = float(np.linalg.norm(c))
+        norm = c / n if n > 1e-9 else c
+        out[int(u)] = [float(x) for x in norm.tolist()]
+    return out
+
+
 def _merge_similar_clusters(embeddings, labels, threshold: float):
     """Union-find merge of clusters whose centroids are within cosine
     similarity *threshold*. Returns the new labels array and a log of
@@ -234,12 +250,20 @@ def main() -> None:
             })
         speakers = sorted({s["speaker"] for s in segment_list})
 
+    # Per-speaker voiceprint centroids, keyed by the SPEAKER_NN label used
+    # in segments, so callers can match speakers across recordings.
+    label_centroids = _cluster_centroids(embeddings, labels)
+    centroids = {
+        f"SPEAKER_{lbl:02d}": vec for lbl, vec in label_centroids.items()
+    }
+
     sys.stdout = real_stdout
     json.dump({
         "num_speakers": len(speakers),
         "speakers": speakers,
         "audio_duration": duration,
         "segments": segment_list,
+        "centroids": centroids,
     }, sys.stdout)
 
 

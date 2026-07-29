@@ -20,6 +20,8 @@ export interface DiarizeResult {
     speakers: string[];
     audio_duration: number;
     segments: DiarizeSegment[];
+    /** L2-normalised mean embedding per speaker label (SPEAKER_NN -> vector). */
+    centroids?: Record<string, number[]>;
 }
 
 const DIARIZE_SCRIPT = "./scripts/run-diarize.py";
