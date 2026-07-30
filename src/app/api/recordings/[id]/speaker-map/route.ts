@@ -1,12 +1,17 @@
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { recordings, speakerVoiceprints, transcriptions } from "@/db/schema";
+import {
+    recordings,
+    speakerVoiceprints,
+    transcriptions,
+    voiceprintSamples,
+} from "@/db/schema";
 import { auth } from "@/lib/auth";
+import { recomputeVoiceprint } from "@/lib/voiceprints/recompute";
 import {
     centroidForTranscriptLabel,
     matchSpeakers,
-    mergeVoiceprint,
     normalize,
     type Voiceprint,
 } from "@/lib/transcription/voiceprint-match";
@@ -158,6 +163,7 @@ export async function PATCH(
             .select({
                 id: transcriptions.id,
                 speakerCentroids: transcriptions.speakerCentroids,
+                speakerSegments: transcriptions.speakerSegments,
             })
             .from(transcriptions)
             .where(eq(transcriptions.recordingId, id))
@@ -175,16 +181,18 @@ export async function PATCH(
             .set({ speakerMap })
             .where(eq(transcriptions.id, transcription.id));
 
-        // Enroll/refine voiceprints: every SPEAKER_NN that now has a real
-        // name and a stored centroid gets folded into the user's library
-        // (running-average when the name already exists).
+        // Enroll/refine voiceprints: every named speaker with a stored centroid
+        // contributes a sample (one per recording); the voiceprint embedding is
+        // recomputed as the mean of its samples.
         try {
             const centroids = transcription.speakerCentroids;
             if (centroids) {
                 await enrollVoiceprints(
                     session.user.id,
+                    id,
                     speakerMap,
                     centroids,
+                    transcription.speakerSegments ?? undefined,
                 );
             }
         } catch (e) {
@@ -205,16 +213,33 @@ export async function PATCH(
 /**
  * Fold confirmed speaker names into the user's voiceprint library. The
  * speakerMap is keyed by the transcript's "Speaker N" labels, while centroids
- * are keyed by diarize "SPEAKER_NN" labels. formatDiarizeHint() maps sorted
- * SPEAKER_NN -> "Speaker 1, 2, 3...", so we invert that: the Nth sorted
- * centroid key corresponds to "Speaker N". For each named speaker with a
- * centroid: upsert a voiceprint, running-averaging when the name exists.
+ * are keyed by diarize "SPEAKER_NN" labels; centroidForTranscriptLabel bridges
+ * the two namespaces.
+ *
+ * Each named speaker contributes one sample per recording (upserted, so
+ * re-saving the same recording updates in place rather than double-counting).
+ * The voiceprint embedding is then recomputed as the mean of all its samples,
+ * so removing a bad sample later self-corrects the voiceprint.
  */
 async function enrollVoiceprints(
     userId: string,
+    recordingId: string,
     speakerMap: Record<string, string>,
     centroids: Record<string, number[]>,
+    segments?: Record<string, { start: number; end: number }>,
 ): Promise<void> {
+    // Resolve the diarize key behind each transcript label so we can attach
+    // the representative segment (which is keyed by diarize label).
+    const sortedKeys = Object.keys(centroids).sort();
+    const diarizeKeyForLabel = (label: string): string | undefined => {
+        const m = label.match(/^speaker\s*(\d+)$/i);
+        if (m) {
+            const idx = Number(m[1]) - 1;
+            if (idx >= 0 && idx < sortedKeys.length) return sortedKeys[idx];
+        }
+        return centroids[label] ? label : undefined;
+    };
+
     for (const [label, rawName] of Object.entries(speakerMap)) {
         const name = rawName.trim();
         const centroid = centroidForTranscriptLabel(label, centroids);
@@ -222,13 +247,12 @@ async function enrollVoiceprints(
         // Skip pass-through labels like "Speaker 1" that aren't real names.
         if (/^speaker\s*\d+$/i.test(name)) continue;
 
+        const diarizeKey = diarizeKeyForLabel(label);
+        const seg = diarizeKey ? segments?.[diarizeKey] : undefined;
+
+        // Find or create the voiceprint row for this name.
         const [existing] = await db
-            .select({
-                id: speakerVoiceprints.id,
-                name: speakerVoiceprints.name,
-                embedding: speakerVoiceprints.embedding,
-                sampleCount: speakerVoiceprints.sampleCount,
-            })
+            .select({ id: speakerVoiceprints.id })
             .from(speakerVoiceprints)
             .where(
                 and(
@@ -238,23 +262,45 @@ async function enrollVoiceprints(
             )
             .limit(1);
 
+        let voiceprintId: string;
         if (existing) {
-            const merged = mergeVoiceprint(existing as Voiceprint, centroid);
-            await db
-                .update(speakerVoiceprints)
-                .set({
-                    embedding: merged.embedding,
-                    sampleCount: merged.sampleCount,
-                    updatedAt: new Date(),
-                })
-                .where(eq(speakerVoiceprints.id, existing.id));
+            voiceprintId = existing.id;
         } else {
-            await db.insert(speakerVoiceprints).values({
-                userId,
-                name,
-                embedding: normalize(centroid),
-                sampleCount: 1,
-            });
+            const [created] = await db
+                .insert(speakerVoiceprints)
+                .values({
+                    userId,
+                    name,
+                    embedding: normalize(centroid),
+                    sampleCount: 1,
+                })
+                .returning({ id: speakerVoiceprints.id });
+            voiceprintId = created.id;
         }
+
+        // Upsert this recording's sample (one per voiceprint+recording).
+        await db
+            .insert(voiceprintSamples)
+            .values({
+                voiceprintId,
+                recordingId,
+                embedding: normalize(centroid),
+                segStart: seg?.start ?? null,
+                segEnd: seg?.end ?? null,
+            })
+            .onConflictDoUpdate({
+                target: [
+                    voiceprintSamples.voiceprintId,
+                    voiceprintSamples.recordingId,
+                ],
+                set: {
+                    embedding: normalize(centroid),
+                    segStart: seg?.start ?? null,
+                    segEnd: seg?.end ?? null,
+                },
+            });
+
+        // Recompute the voiceprint as the mean of all its samples.
+        await recomputeVoiceprint(voiceprintId);
     }
 }

@@ -190,6 +190,10 @@ export const transcriptions = pgTable(
         speakerCentroids: jsonb("speaker_centroids").$type<
             Record<string, number[]>
         >(),
+        // Representative turn {start,end} per speaker label, for snippet playback.
+        speakerSegments: jsonb("speaker_segments").$type<
+            Record<string, { start: number; end: number }>
+        >(),
         createdAt: timestamp("created_at").notNull().defaultNow(),
     },
     (table) => ({
@@ -409,5 +413,40 @@ export const speakerVoiceprints = pgTable(
     (table) => ({
         userIdIdx: index("speaker_voiceprints_user_id_idx").on(table.userId),
         userNameUnique: unique().on(table.userId, table.name),
+    }),
+);
+
+// Individual voice samples that make up a voiceprint. The voiceprint's
+// embedding is the mean of its samples; keeping them separately lets the
+// user audition each one and prune a mislabelled sample without rebuilding
+// the whole voiceprint.
+export const voiceprintSamples = pgTable(
+    "voiceprint_samples",
+    {
+        id: text("id")
+            .primaryKey()
+            .$defaultFn(() => nanoid()),
+        voiceprintId: text("voiceprint_id")
+            .notNull()
+            .references(() => speakerVoiceprints.id, { onDelete: "cascade" }),
+        recordingId: text("recording_id")
+            .notNull()
+            .references(() => recordings.id, { onDelete: "cascade" }),
+        // The individual (normalised) centroid this sample contributed.
+        embedding: jsonb("embedding").$type<number[]>().notNull(),
+        // A representative turn in the source recording for audio playback.
+        segStart: real("seg_start"),
+        segEnd: real("seg_end"),
+        createdAt: timestamp("created_at").notNull().defaultNow(),
+    },
+    (table) => ({
+        voiceprintIdIdx: index("voiceprint_samples_voiceprint_id_idx").on(
+            table.voiceprintId,
+        ),
+        // One sample per (voiceprint, recording): re-saving updates in place.
+        voiceprintRecordingUnique: unique().on(
+            table.voiceprintId,
+            table.recordingId,
+        ),
     }),
 );

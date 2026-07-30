@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+    averageEmbeddings,
     centroidForTranscriptLabel,
     cosineSim,
     matchSpeakers,
@@ -178,5 +179,51 @@ describe("enrollment mapping (end-to-end seam)", () => {
         expect(centroidForTranscriptLabel("Speaker 1", centroids)).toBeDefined();
         expect(centroidForTranscriptLabel("Speaker 5", centroids)).toBeDefined();
         expect(centroidForTranscriptLabel("Speaker 6", centroids)).toBeDefined();
+    });
+});
+
+describe("averageEmbeddings", () => {
+    it("returns the normalised mean of equal-length vectors", () => {
+        const mean = averageEmbeddings([
+            [1, 0, 0],
+            [0, 1, 0],
+        ]);
+        // Mean is [0.5,0.5,0] -> normalised.
+        expect(cosineSim(mean, [1, 1, 0])).toBeCloseTo(1);
+    });
+
+    it("is a no-op direction for a single sample (just normalises)", () => {
+        const mean = averageEmbeddings([[3, 0, 0]]);
+        expect(mean).toEqual([1, 0, 0]);
+    });
+
+    it("ignores vectors whose length doesn't match the first", () => {
+        const mean = averageEmbeddings([
+            [1, 0],
+            [0, 1, 0], // wrong dim, dropped
+        ]);
+        expect(mean).toEqual([1, 0]);
+    });
+
+    it("returns [] for empty input", () => {
+        expect(averageEmbeddings([])).toEqual([]);
+    });
+
+    it("removing a sample shifts the mean toward the survivors", () => {
+        // Three samples; dropping the odd one out moves the mean.
+        const all = averageEmbeddings([
+            [1, 0, 0],
+            [1, 0, 0],
+            [0, 0, 1],
+        ]);
+        const pruned = averageEmbeddings([
+            [1, 0, 0],
+            [1, 0, 0],
+        ]);
+        expect(cosineSim(pruned, [1, 0, 0])).toBeCloseTo(1);
+        // The pruned mean is closer to [1,0,0] than the full one.
+        expect(cosineSim(pruned, [1, 0, 0])).toBeGreaterThan(
+            cosineSim(all, [1, 0, 0]),
+        );
     });
 });

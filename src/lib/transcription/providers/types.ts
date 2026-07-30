@@ -7,6 +7,8 @@ export interface TranscriptionResult {
     compressionWarning?: string;
     /** Per-speaker diarization centroids (SPEAKER_NN -> embedding), when available. */
     speakerCentroids?: Record<string, number[]>;
+    /** Representative turn {start,end} per speaker label, for snippet playback. */
+    speakerSegments?: Record<string, { start: number; end: number }>;
 }
 
 export interface TranscriptionOptions {

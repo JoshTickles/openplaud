@@ -190,3 +190,29 @@ function formatTimestamp(seconds: number): string {
     const s = seconds % 60;
     return `${m}:${s.toFixed(1).padStart(4, "0")}`;
 }
+
+/**
+ * Pick one representative turn per speaker (their single longest segment),
+ * so voiceprint samples can be auditioned as a short audio snippet. Keyed by
+ * the diarize label (SPEAKER_NN), matching the centroids map.
+ */
+export function representativeSegments(
+    result: DiarizeResult,
+): Record<string, { start: number; end: number }> {
+    const best: Record<string, { start: number; end: number; dur: number }> =
+        {};
+    for (const seg of result.segments) {
+        const dur = seg.end - seg.start;
+        const cur = best[seg.speaker];
+        if (!cur || dur > cur.dur) {
+            best[seg.speaker] = { start: seg.start, end: seg.end, dur };
+        }
+    }
+    const out: Record<string, { start: number; end: number }> = {};
+    for (const [label, s] of Object.entries(best)) {
+        // Cap snippet length so a 3-minute monologue doesn't play in full.
+        const end = Math.min(s.end, s.start + 12);
+        out[label] = { start: s.start, end };
+    }
+    return out;
+}

@@ -1,7 +1,11 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { speakerVoiceprints } from "@/db/schema";
+import {
+    recordings,
+    speakerVoiceprints,
+    voiceprintSamples,
+} from "@/db/schema";
 import { auth } from "@/lib/auth";
 
 export async function GET(request: Request) {
@@ -26,7 +30,41 @@ export async function GET(request: Request) {
             .where(eq(speakerVoiceprints.userId, session.user.id))
             .orderBy(speakerVoiceprints.name);
 
-        return NextResponse.json({ voiceprints: rows });
+        // Attach each voiceprint's samples with the source recording name so
+        // the UI can audition and prune them.
+        const ids = rows.map((r) => r.id);
+        const samples = ids.length
+            ? await db
+                  .select({
+                      id: voiceprintSamples.id,
+                      voiceprintId: voiceprintSamples.voiceprintId,
+                      recordingId: voiceprintSamples.recordingId,
+                      recordingName: recordings.filename,
+                      segStart: voiceprintSamples.segStart,
+                      segEnd: voiceprintSamples.segEnd,
+                      createdAt: voiceprintSamples.createdAt,
+                  })
+                  .from(voiceprintSamples)
+                  .leftJoin(
+                      recordings,
+                      eq(recordings.id, voiceprintSamples.recordingId),
+                  )
+                  .where(inArray(voiceprintSamples.voiceprintId, ids))
+            : [];
+
+        const byVoiceprint = new Map<string, typeof samples>();
+        for (const s of samples) {
+            const arr = byVoiceprint.get(s.voiceprintId) ?? [];
+            arr.push(s);
+            byVoiceprint.set(s.voiceprintId, arr);
+        }
+
+        const voiceprints = rows.map((r) => ({
+            ...r,
+            samples: byVoiceprint.get(r.id) ?? [],
+        }));
+
+        return NextResponse.json({ voiceprints });
     } catch (error) {
         console.error("Error fetching voiceprints:", error);
         return NextResponse.json(

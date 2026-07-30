@@ -144,6 +144,24 @@ export function centroidForTranscriptLabel(
     return centroids[label];
 }
 
+/**
+ * Mean of several equal-length embeddings, L2-normalised. Used to recompute a
+ * voiceprint from its individual samples after one is added or removed.
+ * Ignores vectors whose length doesn't match the first (defensive).
+ */
+export function averageEmbeddings(vectors: number[][]): number[] {
+    const usable = vectors.filter(
+        (v) => v.length > 0 && v.length === vectors[0]?.length,
+    );
+    if (usable.length === 0) return [];
+    const dim = usable[0].length;
+    const sum = new Array<number>(dim).fill(0);
+    for (const v of usable) {
+        for (let i = 0; i < dim; i++) sum[i] += v[i];
+    }
+    return normalize(sum.map((x) => x / usable.length));
+}
+
 /** L2-normalise a vector (no-op safety on zero magnitude). */
 export function normalize(v: number[]): number[] {
     let mag = 0;
