@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { recordings, speakerVoiceprints, transcriptions } from "@/db/schema";
 import { auth } from "@/lib/auth";
 import {
+    centroidForTranscriptLabel,
     matchSpeakers,
     mergeVoiceprint,
     normalize,
@@ -214,23 +215,9 @@ async function enrollVoiceprints(
     speakerMap: Record<string, string>,
     centroids: Record<string, number[]>,
 ): Promise<void> {
-    // Transcript label "Speaker N" -> diarize centroid, via sorted key order.
-    const sortedKeys = Object.keys(centroids).sort();
-    const centroidForLabel = (label: string): number[] | undefined => {
-        const m = label.match(/^speaker\s*(\d+)$/i);
-        if (m) {
-            const idx = Number(m[1]) - 1;
-            if (idx >= 0 && idx < sortedKeys.length) {
-                return centroids[sortedKeys[idx]];
-            }
-        }
-        // Fall back to a direct key match (e.g. already a SPEAKER_NN label).
-        return centroids[label];
-    };
-
     for (const [label, rawName] of Object.entries(speakerMap)) {
         const name = rawName.trim();
-        const centroid = centroidForLabel(label);
+        const centroid = centroidForTranscriptLabel(label, centroids);
         if (!name || !centroid || centroid.length === 0) continue;
         // Skip pass-through labels like "Speaker 1" that aren't real names.
         if (/^speaker\s*\d+$/i.test(name)) continue;

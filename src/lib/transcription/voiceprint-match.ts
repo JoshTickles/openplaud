@@ -116,6 +116,34 @@ export function mergeVoiceprint(
     return { embedding: normalize(merged), sampleCount: n + 1 };
 }
 
+/**
+ * Resolve a transcript speaker label ("Speaker 1") to its diarization centroid.
+ *
+ * Centroids are keyed by diarize labels ("SPEAKER_00"), but transcripts use
+ * "Speaker 1, 2, 3...". formatDiarizeHint() maps sorted SPEAKER_NN keys onto
+ * "Speaker 1, 2, 3..." in order, so we invert that: the Nth sorted centroid
+ * key is "Speaker N". Falls back to a direct key match when the label is
+ * already a diarize label. Returns undefined when nothing resolves.
+ *
+ * This is the seam between the transcript and diarization label namespaces;
+ * getting it wrong silently breaks voiceprint enrollment, so it's isolated
+ * here and unit-tested directly.
+ */
+export function centroidForTranscriptLabel(
+    label: string,
+    centroids: Record<string, number[]>,
+): number[] | undefined {
+    const sortedKeys = Object.keys(centroids).sort();
+    const m = label.match(/^speaker\s*(\d+)$/i);
+    if (m) {
+        const idx = Number(m[1]) - 1;
+        if (idx >= 0 && idx < sortedKeys.length) {
+            return centroids[sortedKeys[idx]];
+        }
+    }
+    return centroids[label];
+}
+
 /** L2-normalise a vector (no-op safety on zero magnitude). */
 export function normalize(v: number[]): number[] {
     let mag = 0;

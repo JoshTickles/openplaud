@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+    centroidForTranscriptLabel,
     cosineSim,
     matchSpeakers,
     mergeVoiceprint,
@@ -88,5 +89,94 @@ describe("mergeVoiceprint", () => {
         const merged = mergeVoiceprint(existing, [0, 0, 1]);
         expect(merged.sampleCount).toBe(1);
         expect(merged.embedding).toHaveLength(3);
+    });
+});
+
+describe("centroidForTranscriptLabel", () => {
+    // The seam that silently broke enrollment: speakerMap is keyed by transcript
+    // labels ("Speaker 1") but centroids are keyed by diarize labels
+    // ("SPEAKER_00"). A direct centroids[label] lookup misses every time.
+    const centroids = {
+        SPEAKER_00: [1, 0, 0],
+        SPEAKER_01: [0, 1, 0],
+        SPEAKER_02: [0, 0, 1],
+    };
+
+    it("maps 'Speaker N' to the Nth sorted diarize centroid", () => {
+        expect(centroidForTranscriptLabel("Speaker 1", centroids)).toEqual([1, 0, 0]);
+        expect(centroidForTranscriptLabel("Speaker 2", centroids)).toEqual([0, 1, 0]);
+        expect(centroidForTranscriptLabel("Speaker 3", centroids)).toEqual([0, 0, 1]);
+    });
+
+    it("does NOT return undefined for a real transcript label (regression)", () => {
+        // The original bug: centroids["Speaker 1"] === undefined -> speaker skipped.
+        expect(centroidForTranscriptLabel("Speaker 1", centroids)).toBeDefined();
+    });
+
+    it("tolerates flexible spacing in the label", () => {
+        expect(centroidForTranscriptLabel("Speaker  2", centroids)).toEqual([0, 1, 0]);
+        expect(centroidForTranscriptLabel("speaker3", centroids)).toEqual([0, 0, 1]);
+    });
+
+    it("resolves against sorted order, not insertion order", () => {
+        const shuffled = {
+            SPEAKER_02: [0, 0, 1],
+            SPEAKER_00: [1, 0, 0],
+            SPEAKER_01: [0, 1, 0],
+        };
+        expect(centroidForTranscriptLabel("Speaker 1", shuffled)).toEqual([1, 0, 0]);
+    });
+
+    it("falls back to a direct match for already-diarize labels", () => {
+        expect(centroidForTranscriptLabel("SPEAKER_01", centroids)).toEqual([0, 1, 0]);
+    });
+
+    it("returns undefined when the index is out of range", () => {
+        expect(centroidForTranscriptLabel("Speaker 9", centroids)).toBeUndefined();
+    });
+});
+
+describe("enrollment mapping (end-to-end seam)", () => {
+    // Mirror what enrollVoiceprints does: for a real transcript speakerMap +
+    // diarize-keyed centroids, every named speaker must resolve to a centroid.
+    // The original code produced ZERO enrollments here.
+    it("resolves a centroid for every named speaker in a real-shaped map", () => {
+        const speakerMap = {
+            "Speaker 1": "Akie",
+            "Speaker 2": "Josh",
+            "Speaker 3": "Hara-san",
+        };
+        const centroids = {
+            SPEAKER_00: [0.9, 0.1, 0],
+            SPEAKER_01: [0.1, 0.9, 0],
+            SPEAKER_02: [0, 0.1, 0.9],
+        };
+
+        const enrolled: Record<string, number[]> = {};
+        for (const [label, name] of Object.entries(speakerMap)) {
+            const c = centroidForTranscriptLabel(label, centroids);
+            if (c) enrolled[name] = c;
+        }
+
+        expect(Object.keys(enrolled)).toEqual(["Akie", "Josh", "Hara-san"]);
+        expect(enrolled.Josh).toEqual([0.1, 0.9, 0]);
+    });
+
+    it("still resolves names when diarize found more clusters than named speakers", () => {
+        // Diarize over-detected (8 clusters), transcript named only 6.
+        const speakerMap = {
+            "Speaker 1": "Miquel",
+            "Speaker 5": "Josh",
+            "Speaker 6": "Ethan",
+        };
+        const centroids: Record<string, number[]> = {};
+        for (let i = 0; i < 8; i++) {
+            centroids[`SPEAKER_0${i}`] = Array.from({ length: 4 }, (_, j) =>
+                j === i % 4 ? 1 : 0,
+            );
+        }
+        expect(centroidForTranscriptLabel("Speaker 1", centroids)).toBeDefined();
+        expect(centroidForTranscriptLabel("Speaker 5", centroids)).toBeDefined();
+        expect(centroidForTranscriptLabel("Speaker 6", centroids)).toBeDefined();
     });
 });
