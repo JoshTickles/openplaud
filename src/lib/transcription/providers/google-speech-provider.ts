@@ -3,10 +3,15 @@ import { detectAudioFormat } from "@/lib/audio/detect-format";
 import {
     isDiarizationAvailable,
     runDiarization,
-    formatDiarizeHint,
     representativeSegments,
     type DiarizeResult,
 } from "@/lib/transcription/diarize";
+import {
+    parseTimestampedTurns,
+    linkSpeakersByOverlap,
+    rekeyByLink,
+    stripTimestamps,
+} from "@/lib/transcription/speaker-linking";
 import type {
     TranscriptionOptions,
     TranscriptionProvider,
@@ -16,7 +21,6 @@ import type {
 const DEFAULT_MODEL = "gemini-3-flash-preview";
 /** Gemini 3 models require the 'global' location on Vertex AI */
 const GEMINI3_LOCATION = "global";
-const DEFAULT_SPEAKER_COUNT = 2;
 
 /**
  * Minimum number of total occurrences of a substring across the full text
@@ -46,9 +50,8 @@ function mimeTypeForGemini(contentType: string): string {
 
 function buildPrompt(
     useDiarization: boolean,
-    _speakerCount: number,
+    speakerCount: number,
     language?: string,
-    diarizeHint?: string,
 ): string {
     const langHint = language ? ` The audio is in ${language}.` : "";
 
@@ -57,25 +60,25 @@ function buildPrompt(
             "Transcribe this audio recording accurately and completely.",
         ];
 
-        if (diarizeHint) {
-            // Two-pass mode: we have voice-analysis speaker segments
+        if (speakerCount > 0) {
+            // Count-only: the pre-pass reliably counts speakers but its
+            // segment-level attribution is fragmented, so we give Gemini only
+            // the count and let its native diarization attribute each turn.
             baseInstructions.push(
-                "",
-                diarizeHint,
-                "",
-                "Use the chronological timeline above to assign speaker labels.",
-                "Start a new speaker turn when you hear a speaker change that aligns with the timeline.",
-                "If a boundary seems slightly off (e.g. a sentence is split between speakers),",
-                "use the content and conversational context to decide who actually said it.",
+                `There are exactly ${speakerCount} distinct speakers in this recording. Label them consistently as Speaker 1 through Speaker ${speakerCount}.`,
             );
         } else {
-            // Fallback: no diarization data, let Gemini guess
             baseInstructions.push(
                 "Identify and label every distinct speaker consistently as Speaker 1, Speaker 2, Speaker 3, etc. Detect ALL speakers present — do NOT merge or combine different speakers.",
             );
         }
 
         baseInstructions.push(
+            "",
+            "SPEAKER ATTRIBUTION (very important):",
+            "- Attribute each turn to the correct speaker based on their voice.",
+            "- A speaker usually talks for several sentences continuously. Do NOT switch speaker labels mid-thought unless the voice genuinely changes.",
+            "- Keep the same label for the same voice across the whole recording.",
             "",
             "BACKCHANNEL HANDLING (very important):",
             "- Brief listener acknowledgments like 'yeah', 'mm-hmm', 'right', 'okay', 'sure', 'uh-huh', 'hmm', 'yep' etc.",
@@ -84,12 +87,12 @@ function buildPrompt(
             "- Only create a new speaker turn when a speaker contributes substantive content (a real sentence, a question, or a meaningful response).",
             "",
             "CRITICAL FORMATTING RULES (you MUST follow these):",
-            "- Each speaker turn MUST start on its own line as: Speaker N: <text>",
+            "- Start every speaker turn on its own line as: [m:ss] Speaker N: <text>",
+            "- The [m:ss] timestamp is the time the turn begins (use [h:mm:ss] past one hour).",
             "- There MUST be exactly one blank line between every speaker turn.",
             "- NEVER merge multiple speaker turns into a single paragraph.",
             "- Preserve this formatting even for very long recordings.",
             "",
-            "Do NOT include timestamps, commentary, or analysis - only the verbatim transcription with speaker labels.",
             "IMPORTANT: If you notice yourself repeating the same text, STOP immediately. Never output the same phrase more than twice in a row.",
             `Maintain the original language of the recording.${langHint}`,
         );
@@ -344,10 +347,42 @@ function finalizeTranscript(
     raw: string,
     useDiarization: boolean,
     wasCompressed: boolean,
-    speakerCentroids?: Record<string, number[]>,
-    speakerSegments?: Record<string, { start: number; end: number }>,
+    diarizeResult?: DiarizeResult,
 ): TranscriptionResult {
-    const { text: cleaned, wasTruncated } = truncateRepetitionLoop(raw.trim());
+    // Link Gemini's speaker labels to the pre-pass voice clusters by time
+    // overlap (using the [m:ss] timestamps Gemini emitted), then re-key the
+    // centroids + representative segments onto Gemini's labels so voiceprint
+    // enrollment attaches names to the correct voice. Falls back to order-
+    // based mapping (legacy) when timestamps are absent.
+    let speakerCentroids: Record<string, number[]> | undefined;
+    let speakerSegments:
+        | Record<string, { start: number; end: number }>
+        | undefined;
+    if (useDiarization && diarizeResult) {
+        const repSegs = representativeSegments(diarizeResult);
+        const turns = parseTimestampedTurns(raw, diarizeResult.audio_duration);
+        const link =
+            turns.length > 0
+                ? linkSpeakersByOverlap(turns, diarizeResult.segments)
+                : {};
+        if (Object.keys(link).length > 0) {
+            speakerCentroids = rekeyByLink(diarizeResult.centroids ?? {}, link);
+            speakerSegments = rekeyByLink(repSegs, link);
+            console.log(
+                `[Transcribe] Linked speakers by time overlap: ${JSON.stringify(link)}`,
+            );
+        } else {
+            // No timestamps parsed: keep diarize-keyed maps, enrollment falls
+            // back to sorted-order mapping.
+            speakerCentroids = diarizeResult.centroids;
+            speakerSegments = repSegs;
+        }
+    }
+
+    const stripped = stripTimestamps(raw);
+    const { text: cleaned, wasTruncated } = truncateRepetitionLoop(
+        stripped.trim(),
+    );
     if (wasTruncated) {
         console.warn(`[Transcribe] Repetition loop removed. Original: ${raw.length} → ${cleaned.length} chars`);
     }
@@ -480,13 +515,14 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
             );
         }
 
-        const diarizeHint = diarizeResult ? formatDiarizeHint(diarizeResult) : undefined;
-        const diarizeSegs = diarizeResult ? representativeSegments(diarizeResult) : undefined;
+        // The pre-pass count is reliable; feed it to Gemini and let its native
+        // diarization attribute turns (the pre-pass timeline itself is too
+        // fragmented to guide attribution). 0 => let Gemini detect the count.
+        const speakerCount = diarizeResult?.num_speakers ?? 0;
         const prompt = buildPrompt(
             useDiarization,
-            options.diarizationSpeakers ?? DEFAULT_SPEAKER_COUNT,
+            speakerCount,
             options.language,
-            diarizeHint,
         );
 
         onProgress?.(40, "Transcribing");
@@ -499,25 +535,9 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
                 "mp3";
             const audioB64 = audioToSend.toString("base64");
             console.log(`[LiteLLM] Starting chat transcribe (model=${this.litellmModel}, audioSize=${audioToSend.length}, format=${audioFormat}, diarizeSegments=${diarizeResult?.segments.length ?? 0})`);
-            let rawLL: string;
-            try {
-                rawLL = await this.callViaLiteLLM(audioB64, audioFormat, prompt);
-            } catch (err) {
-                if (useDiarization && diarizeHint) {
-                    console.warn("[LiteLLM] transcribe failed with hint - retrying without hint:", err);
-                    const fallbackPrompt = buildPrompt(
-                        useDiarization,
-                        options.diarizationSpeakers ?? DEFAULT_SPEAKER_COUNT,
-                        options.language,
-                        undefined,
-                    );
-                    rawLL = await this.callViaLiteLLM(audioB64, audioFormat, fallbackPrompt);
-                } else {
-                    throw err;
-                }
-            }
+            const rawLL = await this.callViaLiteLLM(audioB64, audioFormat, prompt);
             console.log(`[LiteLLM] transcribe completed in ${((Date.now() - callStart) / 1000).toFixed(1)}s`);
-            return finalizeTranscript(rawLL, useDiarization, wasCompressed, diarizeResult?.centroids, diarizeSegs);
+            return finalizeTranscript(rawLL, useDiarization, wasCompressed, diarizeResult);
         }
 
         const modelId = this.resolveModel(options.model);
@@ -585,13 +605,12 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
             const errCode = (geminiErr as { code?: number })?.code;
             console.error(`[Gemini] generateContentStream failed after ${elapsed}s: ${errName} code=${errCode}`);
 
-            if (useDiarization && diarizeHint && errCode === 23) {
-                console.warn("[Gemini] TimeoutError with diarization hint - retrying without hint (streaming)");
+            if (useDiarization && errCode === 23) {
+                console.warn("[Gemini] TimeoutError - retrying without speaker count (streaming)");
                 const fallbackPrompt = buildPrompt(
                     useDiarization,
-                    options.diarizationSpeakers ?? DEFAULT_SPEAKER_COUNT,
+                    0,
                     options.language,
-                    undefined,
                 );
                 raw = await callGemini(fallbackPrompt, "fallback generateContentStream");
             } else {
@@ -605,7 +624,7 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
 
         console.log(`[Gemini] total generateContent time: ${((Date.now() - callStart) / 1000).toFixed(1)}s`);
 
-        return finalizeTranscript(raw, useDiarization, wasCompressed, diarizeResult?.centroids, diarizeSegs);
+        return finalizeTranscript(raw, useDiarization, wasCompressed, diarizeResult);
     }
 
     /**

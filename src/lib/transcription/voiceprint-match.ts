@@ -133,6 +133,11 @@ export function centroidForTranscriptLabel(
     label: string,
     centroids: Record<string, number[]>,
 ): number[] | undefined {
+    // Exact match first: when centroids are re-keyed onto Gemini labels
+    // ("Speaker 2") by time-overlap linking, this is a direct hit.
+    if (centroids[label]) return centroids[label];
+    // Legacy fallback: centroids keyed by diarize label ("SPEAKER_NN"), mapped
+    // to "Speaker N" by sorted order.
     const sortedKeys = Object.keys(centroids).sort();
     const m = label.match(/^speaker\s*(\d+)$/i);
     if (m) {
