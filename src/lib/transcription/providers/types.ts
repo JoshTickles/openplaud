@@ -15,6 +15,8 @@ export interface TranscriptionResult {
     modelUsed?: string;
     /** Set when the configured backend was unavailable and another one was used. */
     failoverNotice?: string;
+    /** Set when speaker fingerprinting was skipped or failed for this recording. */
+    speakerNotice?: string;
 }
 
 /** `vertex-failover` means LiteLLM was configured but Vertex did the work. */
@@ -27,8 +29,10 @@ export interface TranscriptionOptions {
     diarizationSpeakers?: number;
     /** Exact speaker count, set when the user has explicitly overridden detection for this run. */
     speakerCountOverride?: number;
-    /** Absolute path to the audio file on disk (for diarization pre-pass) */
+    /** Absolute path to the audio file on disk (for speaker fingerprinting) */
     audioPath?: string;
+    /** Recording length in seconds, used to bound the final speaker turn. */
+    audioDurationSeconds?: number;
     onProgress?: ProgressCallback;
 }
 

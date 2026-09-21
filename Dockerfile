@@ -28,7 +28,8 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# Install Python + diarization library (CPU-only speaker fingerprinting)
+# Install Python + the voice-embedding runtime (CPU-only speaker fingerprinting).
+# The `diarize` package supplies wespeakerruntime, soundfile and torch.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         python3 python3-pip python3-venv libsndfile1 libgomp1 ffmpeg && \
@@ -50,8 +51,8 @@ COPY --from=builder /app/migrate-idempotent.js ./migrate-idempotent.js
 # Copy migrations folder
 COPY --from=builder /app/src/db/migrations ./src/db/migrations
 
-# Copy diarization script
-COPY scripts/run-diarize.py ./scripts/run-diarize.py
+# Copy speaker-fingerprinting script
+COPY scripts/embed-speaker-turns.py ./scripts/embed-speaker-turns.py
 
 # Copy entrypoint
 COPY docker-entrypoint.sh ./docker-entrypoint.sh

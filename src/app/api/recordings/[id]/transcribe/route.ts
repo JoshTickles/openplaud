@@ -118,6 +118,7 @@ async function handleJsonResponse(
                 detectedLanguage: savedTranscription.detectedLanguage ?? null,
                 compressionWarning: result.compressionWarning ?? null,
                 failoverNotice: result.failoverNotice ?? null,
+                speakerNotice: result.speakerNotice ?? null,
                 backend: savedTranscription.transcriptionBackend ?? null,
             }),
             { headers: { "Content-Type": "application/json" } },
@@ -187,6 +188,7 @@ function handleStreamResponse(
                         compressionWarning:
                             result.compressionWarning ?? null,
                         failoverNotice: result.failoverNotice ?? null,
+                        speakerNotice: result.speakerNotice ?? null,
                         backend:
                             savedTranscription.transcriptionBackend ?? null,
                     },

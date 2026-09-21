@@ -120,7 +120,7 @@ export function mergeVoiceprint(
  * Resolve a transcript speaker label ("Speaker 1") to its diarization centroid.
  *
  * Centroids are keyed by diarize labels ("SPEAKER_00"), but transcripts use
- * "Speaker 1, 2, 3...". formatDiarizeHint() maps sorted SPEAKER_NN keys onto
+ * "Speaker 1, 2, 3...". Older recordings stored sorted SPEAKER_NN keys mapped onto
  * "Speaker 1, 2, 3..." in order, so we invert that: the Nth sorted centroid
  * key is "Speaker N". Falls back to a direct key match when the label is
  * already a diarize label. Returns undefined when nothing resolves.

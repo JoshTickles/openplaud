@@ -8,9 +8,14 @@ Speaker-labelled transcription runs on one of two backends, selected by
 | `vertex` (default) | Vertex AI `generateContentStream` | `options.model`, default `gemini-3-flash-preview` | GCP service account |
 | `litellm` | OpenAI-compatible `/chat/completions` with an `input_audio` block | `LITELLM_TRANSCRIBE_MODEL` | Proxy API key |
 
-Both backends share the same prompt, the same pyannote pre-pass for speaker
-counting, and the same post-processing, so switching backends does not change
-transcript structure or speaker linking.
+Both backends share the same prompt and the same post-processing, including
+speaker fingerprinting (see
+[SPEAKER_FINGERPRINTING.md](SPEAKER_FINGERPRINTING.md)), so switching backends
+does not change transcript structure or speaker handling.
+
+Both must emit `[m:ss]` timestamps per turn, because fingerprinting samples audio
+from those ranges. Verified on `gemini-3-flash-preview` via Vertex and on
+`litellm/gemini-flash` via the dev-ai proxy.
 
 ## Why there is a failover
 

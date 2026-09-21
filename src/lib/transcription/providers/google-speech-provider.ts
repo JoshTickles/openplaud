@@ -1,17 +1,22 @@
 import { GoogleGenAI } from "@google/genai";
 import { detectAudioFormat } from "@/lib/audio/detect-format";
 import {
-    isDiarizationAvailable,
-    runDiarization,
-    representativeSegments,
-    type DiarizeResult,
-} from "@/lib/transcription/diarize";
-import {
     parseTimestampedTurns,
-    linkSpeakersByOverlap,
-    rekeyByLink,
     stripTimestamps,
 } from "@/lib/transcription/speaker-linking";
+import {
+    WINDOW_SECONDS,
+    applyLabelMapping,
+    mergeAdjacentSameSpeakerTurns,
+    relabelTurns,
+    representativeTurns,
+    resolveSpeakerLabels,
+    selectSampleWindows,
+} from "@/lib/transcription/speaker-sampling";
+import {
+    embedSpeakerTurns,
+    isVoiceprintEmbeddingAvailable,
+} from "@/lib/transcription/voiceprint-extract";
 import {
     LitellmHttpError,
     canFailover,
@@ -353,50 +358,108 @@ interface BackendCallContext {
     effectiveMimeType: string;
     wasCompressed: boolean;
     useDiarization: boolean;
-    diarizeResult?: DiarizeResult;
     prompt: string;
     options: TranscriptionOptions;
 }
 
+interface SpeakerResolution {
+    /** Emitted label -> final label, after merging over-split speakers. */
+    mapping: Record<string, string>;
+    centroids: Record<string, number[]>;
+    segments: Record<string, { start: number; end: number }>;
+}
+
+/**
+ * Derive one voiceprint per speaker from the transcript's own timestamps, and
+ * use those voiceprints to merge labels the model split apart.
+ *
+ * The model transcribes unaided, which over-splits roughly one meeting in five
+ * (measured against hand-named speakers). Sampling ~18s per label and comparing
+ * the labels to each other repairs that far more cheaply than diarizing the
+ * whole file, because the only question asked is "are these two the same voice".
+ */
+async function resolveSpeakersFromTranscript(
+    raw: string,
+    audioPath: string,
+    audioDurationSeconds?: number,
+): Promise<SpeakerResolution | undefined> {
+    const turns = parseTimestampedTurns(raw, audioDurationSeconds);
+    if (turns.length === 0) {
+        console.warn(
+            "[Voiceprint] Transcript has no [m:ss] timestamps - skipping speaker fingerprinting",
+        );
+        return undefined;
+    }
+
+    const windows = selectSampleWindows(turns);
+    const labels = [...new Set(turns.map((t) => t.label))];
+    if (Object.keys(windows).length === 0) {
+        console.warn("[Voiceprint] No turn was long enough to sample");
+        return undefined;
+    }
+
+    const { centroids } = await embedSpeakerTurns(
+        audioPath,
+        windows,
+        WINDOW_SECONDS,
+    );
+    const resolved = resolveSpeakerLabels(labels, centroids);
+
+    const collapsed = Object.entries(resolved.merged).filter(
+        ([, members]) => members.length > 1,
+    );
+    if (collapsed.length > 0) {
+        console.log(
+            `[Voiceprint] Merged over-split speakers: ${collapsed
+                .map(([final, members]) => `${members.join("+")} -> ${final}`)
+                .join(", ")}`,
+        );
+    }
+
+    return {
+        mapping: resolved.mapping,
+        centroids: resolved.centroids,
+        segments: representativeTurns(relabelTurns(turns, resolved.mapping)),
+    };
+}
+
 /**
  * Shared post-processing for raw model output, used by both the Vertex and
- * LiteLLM backends: repetition-loop removal, speaker blank-line normalisation,
- * backchannel-turn cleanup, and the compression warning.
+ * LiteLLM backends: speaker fingerprinting and label repair, repetition-loop
+ * removal, speaker blank-line normalisation, backchannel-turn cleanup, and the
+ * compression warning.
  */
-function finalizeTranscript(
+async function finalizeTranscript(
     raw: string,
     useDiarization: boolean,
     wasCompressed: boolean,
-    diarizeResult?: DiarizeResult,
-): TranscriptionResult {
-    // Link Gemini's speaker labels to the pre-pass voice clusters by time
-    // overlap (using the [m:ss] timestamps Gemini emitted), then re-key the
-    // centroids + representative segments onto Gemini's labels so voiceprint
-    // enrollment attaches names to the correct voice. Falls back to order-
-    // based mapping (legacy) when timestamps are absent.
-    let speakerCentroids: Record<string, number[]> | undefined;
-    let speakerSegments:
-        | Record<string, { start: number; end: number }>
-        | undefined;
-    if (useDiarization && diarizeResult) {
-        const repSegs = representativeSegments(diarizeResult);
-        const turns = parseTimestampedTurns(raw, diarizeResult.audio_duration);
-        const link =
-            turns.length > 0
-                ? linkSpeakersByOverlap(turns, diarizeResult.segments)
-                : {};
-        if (Object.keys(link).length > 0) {
-            speakerCentroids = rekeyByLink(diarizeResult.centroids ?? {}, link);
-            speakerSegments = rekeyByLink(repSegs, link);
-            console.log(
-                `[Transcribe] Linked speakers by time overlap: ${JSON.stringify(link)}`,
-            );
-        } else {
-            // No timestamps parsed: keep diarize-keyed maps, enrollment falls
-            // back to sorted-order mapping.
-            speakerCentroids = diarizeResult.centroids;
-            speakerSegments = repSegs;
+    options: TranscriptionOptions,
+): Promise<TranscriptionResult> {
+    let resolution: SpeakerResolution | undefined;
+    let speakerNotice: string | undefined;
+    if (useDiarization && options.audioPath) {
+        try {
+            const available = await isVoiceprintEmbeddingAvailable();
+            if (!available) {
+                speakerNotice =
+                    "Speaker fingerprinting was skipped: the voice-embedding runtime is unavailable. Speaker labels are the model's own and no voiceprints were saved.";
+            } else {
+                resolution = await resolveSpeakersFromTranscript(
+                    raw,
+                    options.audioPath,
+                    options.audioDurationSeconds,
+                );
+                if (!resolution) {
+                    speakerNotice =
+                        "Speaker fingerprinting produced no voiceprints for this recording, so speaker names cannot be suggested from it.";
+                }
+            }
+        } catch (err) {
+            console.error("[Voiceprint] Speaker fingerprinting failed:", err);
+            speakerNotice =
+                "Speaker fingerprinting failed for this recording. The transcript is unaffected, but no voiceprints were saved and speakers may be over-split.";
         }
+        if (speakerNotice) console.warn(`[Voiceprint] ${speakerNotice}`);
     }
 
     const stripped = stripTimestamps(raw);
@@ -414,6 +477,13 @@ function finalizeTranscript(
             console.log(`[Transcribe] Removed backchannel-only turns: ${before} → ${text.length} chars`);
         }
     }
+    // Relabel last, so merging adjacent turns also absorbs gaps left by
+    // backchannel removal.
+    if (resolution) {
+        text = mergeAdjacentSameSpeakerTurns(
+            applyLabelMapping(text, resolution.mapping),
+        );
+    }
     const compressionWarning = wasCompressed
         ? `This recording was large (>${Math.round(LARGE_AUDIO_THRESHOLD_BYTES / 1024 / 1024)} MB) and was automatically compressed to 16 kHz mono before transcription. Accuracy should be fine for speech, but audio quality artefacts or overlapping voices may be less precisely rendered.`
         : undefined;
@@ -421,8 +491,9 @@ function finalizeTranscript(
         text,
         detectedLanguage: null,
         compressionWarning,
-        speakerCentroids,
-        speakerSegments,
+        speakerNotice,
+        speakerCentroids: resolution?.centroids,
+        speakerSegments: resolution?.segments,
     };
 }
 
@@ -517,30 +588,20 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
         const onProgress = options.onProgress;
 
         // Compress oversized files so Vertex AI accepts them as inline data.
-        // Diarization still uses the original on-disk file (options.audioPath).
+        // Fingerprinting still uses the original on-disk file (options.audioPath).
         onProgress?.(15, "Compressing audio");
         const { buffer: audioToSend, mimeType: effectiveMimeType, wasCompressed } =
             await compressAudioIfNeeded(audioBuffer);
 
         const useDiarization = options.responseFormat === "diarized_json";
 
-        // --- Pass 1: Voice-fingerprint diarization on the full file ---
-        let diarizeResult: DiarizeResult | undefined;
-        if (useDiarization && options.audioPath) {
-            onProgress?.(25, "Analyzing speakers");
-            diarizeResult = await this.tryDiarizeRaw(
-                options.audioPath,
-                options.speakerCountOverride,
-            );
-        }
-
-        // The pre-pass count is reliable; feed it to Gemini and let its native
-        // diarization attribute turns (the pre-pass timeline itself is too
-        // fragmented to guide attribution). 0 => let Gemini detect the count.
-        const speakerCount = diarizeResult?.num_speakers ?? 0;
+        // Transcribe unaided: the model attributes turns from the audio itself
+        // and emits timestamps. Over-split labels are repaired afterwards by
+        // voiceprint similarity (see resolveSpeakersFromTranscript). Only an
+        // explicit user override is passed as an exact count.
         const prompt = buildPrompt(
             useDiarization,
-            speakerCount,
+            options.speakerCountOverride ?? 0,
             options.language,
         );
 
@@ -551,7 +612,6 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
             effectiveMimeType,
             wasCompressed,
             useDiarization,
-            diarizeResult,
             prompt,
             options,
         };
@@ -599,16 +659,16 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
     private async transcribeViaLiteLLM(
         ctx: BackendCallContext,
     ): Promise<TranscriptionResult> {
-        const { audioToSend, effectiveMimeType, wasCompressed, useDiarization, diarizeResult, prompt } = ctx;
+        const { audioToSend, effectiveMimeType, wasCompressed, useDiarization, prompt, options } = ctx;
         const callStart = Date.now();
         const audioFormat =
             mimeTypeForGemini(effectiveMimeType).replace("audio/", "") || "mp3";
         const audioB64 = audioToSend.toString("base64");
-        console.log(`[LiteLLM] Starting chat transcribe (model=${this.litellmModel}, audioSize=${audioToSend.length}, format=${audioFormat}, diarizeSegments=${diarizeResult?.segments.length ?? 0})`);
+        console.log(`[LiteLLM] Starting chat transcribe (model=${this.litellmModel}, audioSize=${audioToSend.length}, format=${audioFormat})`);
         const rawLL = await this.callViaLiteLLM(audioB64, audioFormat, prompt);
         console.log(`[LiteLLM] transcribe completed in ${((Date.now() - callStart) / 1000).toFixed(1)}s`);
         return {
-            ...finalizeTranscript(rawLL, useDiarization, wasCompressed, diarizeResult),
+            ...(await finalizeTranscript(rawLL, useDiarization, wasCompressed, options)),
             backendUsed: "litellm",
             modelUsed: this.litellmModel,
         };
@@ -618,13 +678,13 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
     private async transcribeViaVertex(
         ctx: BackendCallContext,
     ): Promise<TranscriptionResult> {
-        const { audioToSend, effectiveMimeType, wasCompressed, useDiarization, diarizeResult, prompt, options } = ctx;
+        const { audioToSend, effectiveMimeType, wasCompressed, useDiarization, prompt, options } = ctx;
         const onProgress = options.onProgress;
         const callStart = Date.now();
         const modelId = this.resolveModel(options.model);
         const location = this.locationForModel(modelId);
         const ai = new GoogleGenAI({ vertexai: true, project: this.projectId, location });
-        console.log(`[Gemini] Starting generateContent call (model=${modelId}, location=${location}, audioSize=${audioToSend.length}, diarizeSegments=${diarizeResult?.segments.length ?? 0})`);
+        console.log(`[Gemini] Starting generateContent call (model=${modelId}, location=${location}, audioSize=${audioToSend.length})`);
 
         // Bun has an internal ~240-270s socket idle timeout that cannot be overridden
         // via AbortSignal or httpOptions. Monkey-patch fetch for this call to disable
@@ -706,50 +766,10 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
         console.log(`[Gemini] total generateContent time: ${((Date.now() - callStart) / 1000).toFixed(1)}s`);
 
         return {
-            ...finalizeTranscript(raw, useDiarization, wasCompressed, diarizeResult),
+            ...(await finalizeTranscript(raw, useDiarization, wasCompressed, options)),
             backendUsed: this.backend === "litellm" ? "vertex-failover" : "vertex",
             modelUsed: modelId,
         };
-    }
-
-    /**
-     * Attempt to run voice-fingerprint diarization.
-     * Returns the raw DiarizeResult (for chunk-level hint filtering), or
-     * undefined if diarization is unavailable or fails.
-     */
-    private async tryDiarizeRaw(
-        audioPath: string,
-        exactSpeakerCount?: number,
-    ): Promise<DiarizeResult | undefined> {
-        try {
-            const available = await isDiarizationAvailable();
-            if (!available) {
-                console.log("[Gemini] Diarization runtime not available, falling back to Gemini-only speaker detection");
-                return undefined;
-            }
-
-            // Explicit override → exact count. Otherwise cap max + a very
-            // conservative post-pass merge: only collapses clusters whose
-            // centroids are nearly identical (sim >= 0.7). Real over-
-            // clustering on meeting audio tends to come from genuine
-            // embedding separation (mic distance, room position), so the
-            // user-facing override is the primary fix.
-            const diarizeOpts = exactSpeakerCount
-                ? { numSpeakers: exactSpeakerCount }
-                : { maxSpeakers: 8, mergeThreshold: 0.7 };
-            console.log(`[Gemini] Running voice-fingerprint diarization on ${audioPath} (${exactSpeakerCount ? `exact=${exactSpeakerCount}` : "auto, max=8"})...`);
-            const start = Date.now();
-            const result = await runDiarization(audioPath, diarizeOpts);
-            const elapsed = ((Date.now() - start) / 1000).toFixed(1);
-            console.log(
-                `[Gemini] Diarization complete in ${elapsed}s: ` +
-                `${result.num_speakers} speakers, ${result.segments.length} segments`,
-            );
-            return result;
-        } catch (err) {
-            console.warn("[Gemini] Diarization failed, falling back to Gemini-only:", err);
-            return undefined;
-        }
     }
 
     private resolveModel(model: string): string {

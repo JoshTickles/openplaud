@@ -173,6 +173,11 @@ export function TranscriptionSection({
                                     duration: 12000,
                                 });
                             }
+                            if (event.result.speakerNotice) {
+                                toast.warning(event.result.speakerNotice, {
+                                    duration: 12000,
+                                });
+                            }
                         }
                     } catch {
                         // skip malformed events

@@ -222,6 +222,9 @@ export function Workstation({ recordings, transcriptions, allTags }: Workstation
                             if (event.result.failoverNotice) {
                                 toast.warning(event.result.failoverNotice, { duration: 12000 });
                             }
+                            if (event.result.speakerNotice) {
+                                toast.warning(event.result.speakerNotice, { duration: 12000 });
+                            }
                             router.refresh();
                         }
                     } catch { /* skip malformed events */ }

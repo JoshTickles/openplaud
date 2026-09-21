@@ -1,18 +1,11 @@
 /**
- * Links Gemini's speaker labels ("Speaker 1") to the diarization voice
- * fingerprint clusters ("SPEAKER_00") by TIME OVERLAP, not by numbering order.
+ * Reads the speaker turns back out of a transcript.
  *
- * Gemini numbers speakers however it likes; the pyannote pre-pass numbers voice
- * clusters however it likes. The only reliable bridge is the shared clock: for
- * each Gemini speaker, whichever fingerprint cluster was talking during the same
- * moments is the same person. All functions here are pure and unit-tested.
+ * The model is asked to prefix every turn with `[m:ss]`, which makes the
+ * transcript self-describing: each turn's label and time range are known
+ * without a separate diarization pass. Speaker fingerprinting samples audio
+ * from these ranges (see `speaker-sampling.ts`).
  */
-
-export interface DiarizeSegmentLite {
-    start: number;
-    end: number;
-    speaker: string;
-}
 
 export interface GeminiTurn {
     label: string; // e.g. "Speaker 2"
@@ -53,69 +46,6 @@ export function parseTimestampedTurns(
         turns.push({ label: marks[i].label, start, end: Math.max(end, start) });
     }
     return turns;
-}
-
-/**
- * Map each Gemini speaker label to the diarization cluster it overlaps most in
- * time. Returns { geminiLabel -> diarizeLabel }. A diarize cluster is assigned
- * to at most one Gemini label (its strongest), so two Gemini speakers can't
- * collapse onto the same voice.
- */
-export function linkSpeakersByOverlap(
-    turns: GeminiTurn[],
-    segments: DiarizeSegmentLite[],
-): Record<string, string> {
-    // overlap[geminiLabel][diarizeLabel] = total overlapping seconds
-    const overlap: Record<string, Record<string, number>> = {};
-    for (const turn of turns) {
-        for (const seg of segments) {
-            const lo = Math.max(turn.start, seg.start);
-            const hi = Math.min(turn.end, seg.end);
-            const ov = hi - lo;
-            if (ov <= 0) continue;
-            (overlap[turn.label] ??= {})[seg.speaker] =
-                (overlap[turn.label][seg.speaker] ?? 0) + ov;
-        }
-    }
-
-    // Greedy assignment: strongest (gemini, diarize) pairs first, each diarize
-    // cluster used once.
-    const pairs: { g: string; d: string; ov: number }[] = [];
-    for (const [g, byD] of Object.entries(overlap)) {
-        for (const [d, ov] of Object.entries(byD)) {
-            pairs.push({ g, d, ov });
-        }
-    }
-    pairs.sort((x, y) => y.ov - x.ov);
-
-    const result: Record<string, string> = {};
-    const usedDiarize = new Set<string>();
-    const assignedGemini = new Set<string>();
-    for (const { g, d, ov } of pairs) {
-        if (ov <= 0) continue;
-        if (assignedGemini.has(g) || usedDiarize.has(d)) continue;
-        result[g] = d;
-        assignedGemini.add(g);
-        usedDiarize.add(d);
-    }
-    return result;
-}
-
-/**
- * Re-key a diarize-labelled map (SPEAKER_NN -> value) onto Gemini labels using
- * a { geminiLabel -> diarizeLabel } link. Only entries whose diarize label was
- * linked are carried over. Values are passed through untouched.
- */
-export function rekeyByLink<T>(
-    byDiarizeLabel: Record<string, T>,
-    link: Record<string, string>,
-): Record<string, T> {
-    const out: Record<string, T> = {};
-    for (const [geminiLabel, diarizeLabel] of Object.entries(link)) {
-        const v = byDiarizeLabel[diarizeLabel];
-        if (v !== undefined) out[geminiLabel] = v;
-    }
-    return out;
 }
 
 /** Remove leading `[m:ss] ` / `[h:mm:ss] ` timestamps from every line. */

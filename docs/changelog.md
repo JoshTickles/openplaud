@@ -1,5 +1,11 @@
 # Changelog
 
+- [Changed]: Speaker fingerprinting now samples ~18s per speaker from the transcript's own `[m:ss]` timestamps instead of diarizing the whole file, using fixed 3s windows and seek-based reads so memory stays flat regardless of recording length (josh, 2026-09-21)
+- [Fixed]: Long recordings no longer silently lose all voiceprints — the old diarization pre-pass was OOM-killed (4.3GB peak, exit 137) on a 29-minute meeting and the failure was swallowed, leaving only 24 of 132 transcriptions with fingerprint data (josh, 2026-09-21)
+- [Added]: Over-split speakers are merged by voiceprint similarity (cosine >= 0.6) and renumbered, repairing the ~1-in-5 meetings where the model split one person across two labels (josh, 2026-09-21)
+- [Removed]: `scripts/run-diarize.py`, `src/lib/transcription/diarize.ts`, and the time-overlap speaker-linking helpers — centroids are now born keyed to the final transcript label, so there is nothing to reconcile (josh, 2026-09-21)
+- [Added]: Warning toast when speaker fingerprinting is skipped or fails, replacing the silent fallback; transcripts are unaffected but no voiceprints are saved (josh, 2026-09-21)
+- [Added]: `docs/SPEAKER_FINGERPRINTING.md` and `docs/overview.md` doc index; updated `docs/TRANSCRIPTION_BACKENDS.md` and `docs/FORK_STATE.md` for the new pipeline (josh, 2026-09-21)
 - [Added]: Automatic LiteLLM to Vertex AI transcription failover with a per-failure-kind cooldown (budget 30 min, rate limit 5 min, server 2 min), so a capped or throttled proxy no longer fails a transcription (josh, 2026-09-21)
 - [Added]: `transcriptions.transcription_backend` column (migration 0020) plus a backend badge and warning toast in the UI, recording whether a transcript came from litellm, vertex, or a vertex failover (josh, 2026-09-21)
 - [Added]: `docs/TRANSCRIPTION_BACKENDS.md` documenting both backends, the failover policy, and Vertex credential management; documented the transcription backend env vars in `.env.example` (josh, 2026-09-21)

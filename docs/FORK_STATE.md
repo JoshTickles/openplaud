@@ -128,16 +128,34 @@ git merge upstream/main
 - Tags section: create, edit (rename/recolor), delete
 - `ENHANCEMENT_CHAT_MODEL` env var for chat model selection
 
-#### 14. Database Migrations
+#### 14. Speaker Fingerprinting & Voiceprints
+- Transcription model labels speakers unaided and emits `[m:ss]` per turn
+- Over-split labels merged by voiceprint similarity, then renumbered
+- Persistent voiceprint library with per-sample audition/prune in Settings
+- Replaced the full-file diarization pre-pass, which was OOM-killed on long recordings
+- Details: [SPEAKER_FINGERPRINTING.md](SPEAKER_FINGERPRINTING.md)
+
+#### 15. Transcription Backend Failover
+- `TRANSCRIPTION_BACKEND=vertex|litellm`, automatic failover to Vertex with cooldowns
+- Backend recorded per transcript and shown as a UI badge
+- Details: [TRANSCRIPTION_BACKENDS.md](TRANSCRIPTION_BACKENDS.md)
+
+#### 16. Database Migrations
 - `0011_obsidian_config.sql` — `obsidian_config` jsonb on `user_settings`
 - `0012_speaker_diarization.sql` — diarization settings
 - `0013_recording_tags.sql` — `recording_tags` + `recording_tag_assignments` tables
 - `0014_upstream_deleted.sql` — `upstream_deleted` boolean on `recordings`
 - `0015_speaker_map.sql` — `speaker_map` jsonb on `transcriptions`
+- `0017`–`0019` — `speaker_voiceprints`, `voiceprint_samples`, `speaker_centroids`, `speaker_segments`
+- `0020_transcription_backend.sql` — `transcription_backend` on `transcriptions`
 
-#### 15. Tests
+#### 17. Tests
 - `src/tests/audio-format.test.ts` — detectAudioFormat magic bytes (7 tests)
 - `src/tests/provider-factory.test.ts` — createTranscriptionProvider + inferProviderType (8+ tests)
+- `src/tests/speaker-sampling.test.ts` — window selection, label merging, relabelling (17 tests)
+- `src/tests/speaker-linking.test.ts` — `[m:ss]` turn parsing (5 tests)
+- `src/tests/voiceprint-match.test.ts` — cosine matching + enrolment maths (21 tests)
+- `src/tests/backend-failover.test.ts` + `transcription-failover.test.ts` — failover policy and provider path (18 tests)
 
 ---
 
@@ -235,7 +253,13 @@ src/lib/transcription/providers/types.ts              ← Provider interface
 src/lib/transcription/providers/openai-provider.ts    ← OpenAI SDK
 src/lib/transcription/providers/azure-provider.ts     ← Azure Whisper
 src/lib/transcription/providers/litellm-provider.ts   ← LiteLLM proxy
-src/lib/transcription/providers/google-speech-provider.ts ← Gemini diarization
+src/lib/transcription/providers/google-speech-provider.ts ← Gemini + backend failover
+src/lib/transcription/speaker-sampling.ts             ← Sampling, label merge, relabel
+src/lib/transcription/speaker-linking.ts              ← [m:ss] turn parsing
+src/lib/transcription/voiceprint-extract.ts           ← Voice-embedding subprocess
+src/lib/transcription/voiceprint-match.ts             ← Cross-recording voice matching
+src/lib/transcription/backend-failover.ts             ← LiteLLM→Vertex failover policy
+scripts/embed-speaker-turns.py                        ← Per-speaker voiceprint embedding
 src/lib/transcription/providers/factory.ts            ← Provider factory + inference
 src/lib/transcription/providers/index.ts              ← Barrel export
 src/lib/transcription/transcribe-recording.ts         ← Provider abstraction + force re-transcribe

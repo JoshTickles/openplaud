@@ -89,6 +89,9 @@ export function VoiceMemoWorkstation({
                 if (data.failoverNotice) {
                     toast.warning(data.failoverNotice, { duration: 12000 });
                 }
+                if (data.speakerNotice) {
+                    toast.warning(data.speakerNotice, { duration: 12000 });
+                }
                 router.refresh();
             } else {
                 const error = await response.json();
@@ -123,6 +126,9 @@ export function VoiceMemoWorkstation({
                 }
                 if (data.failoverNotice) {
                     toast.warning(data.failoverNotice, { duration: 12000 });
+                }
+                if (data.speakerNotice) {
+                    toast.warning(data.speakerNotice, { duration: 12000 });
                 }
                 router.refresh();
             } else {

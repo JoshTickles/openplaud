@@ -58,6 +58,7 @@ export async function transcribeRecording(
     error?: string;
     compressionWarning?: string;
     failoverNotice?: string;
+    speakerNotice?: string;
 }> {
     let audioTempPath: string | undefined;
     const onProgress = options?.onProgress;
@@ -155,6 +156,10 @@ export async function transcribeRecording(
             diarizationSpeakers,
             speakerCountOverride: options?.speakerCountOverride,
             audioPath: audioTempPath,
+            // Stored in ms; the transcript's last turn needs an end time.
+            audioDurationSeconds: recording.duration
+                ? recording.duration / 1000
+                : undefined,
             onProgress,
         } as const;
 
@@ -331,6 +336,7 @@ export async function transcribeRecording(
             success: true,
             compressionWarning: result.compressionWarning,
             failoverNotice: result.failoverNotice,
+            speakerNotice: result.speakerNotice,
         };
     } catch (error) {
         console.error("Error transcribing recording:", error);
