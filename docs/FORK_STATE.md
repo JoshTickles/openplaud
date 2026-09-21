@@ -153,6 +153,7 @@ git merge upstream/main
 - `src/tests/audio-format.test.ts` — detectAudioFormat magic bytes (7 tests)
 - `src/tests/provider-factory.test.ts` — createTranscriptionProvider + inferProviderType (8+ tests)
 - `src/tests/speaker-sampling.test.ts` — window selection, label merging, relabelling (17 tests)
+- `src/tests/speaker-fingerprinting.test.ts` — provider-level fingerprinting path and failure notices (8 tests)
 - `src/tests/speaker-linking.test.ts` — `[m:ss]` turn parsing (5 tests)
 - `src/tests/voiceprint-match.test.ts` — cosine matching + enrolment maths (21 tests)
 - `src/tests/backend-failover.test.ts` + `transcription-failover.test.ts` — failover policy and provider path (18 tests)
