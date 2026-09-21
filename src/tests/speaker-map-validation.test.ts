@@ -32,6 +32,11 @@ function makeParams(id: string) {
     return { params: Promise.resolve({ id }) };
 }
 
+/**
+ * Each result stands for one `db.select()` in the route, in order. The `where`
+ * clause is awaitable as well as chainable, so it covers both the `.limit()`
+ * lookups and the unlimited voiceprint-library query.
+ */
 function mockDbSelectChain(...results: unknown[][]) {
     let mock = db.select as Mock;
     for (const result of results) {
@@ -39,6 +44,8 @@ function mockDbSelectChain(...results: unknown[][]) {
             from: vi.fn().mockReturnValue({
                 where: vi.fn().mockReturnValue({
                     limit: vi.fn().mockResolvedValue(result),
+                    then: (resolve: (v: unknown) => unknown) =>
+                        Promise.resolve(result).then(resolve),
                 }),
             }),
         }) as unknown as Mock;
@@ -67,7 +74,7 @@ describe("Speaker Map API validation", () => {
         });
 
         it("returns null when no transcription exists", async () => {
-            mockDbSelectChain([{ id: "rec-1" }], []);
+            mockDbSelectChain([{ id: "rec-1" }], [], []);
             const res = await GET(makeRequest("GET"), makeParams("rec-1"));
             expect(res.status).toBe(200);
             const json = await res.json();
@@ -76,11 +83,23 @@ describe("Speaker Map API validation", () => {
 
         it("returns speaker map when it exists", async () => {
             const map = { "Speaker 1": "Alice" };
-            mockDbSelectChain([{ id: "rec-1" }], [{ speakerMap: map }]);
+            mockDbSelectChain([{ id: "rec-1" }], [{ speakerMap: map }], []);
             const res = await GET(makeRequest("GET"), makeParams("rec-1"));
             expect(res.status).toBe(200);
             const json = await res.json();
             expect(json.speakerMap).toEqual(map);
+        });
+
+        it("returns the library's names for autocomplete, sorted", async () => {
+            mockDbSelectChain(
+                [{ id: "rec-1" }],
+                [{ speakerMap: null, speakerCentroids: null }],
+                [{ name: "Josh" }, { name: "Akie" }],
+            );
+            const res = await GET(makeRequest("GET"), makeParams("rec-1"));
+            expect(res.status).toBe(200);
+            const json = await res.json();
+            expect(json.knownNames).toEqual(["Akie", "Josh"]);
         });
     });
 

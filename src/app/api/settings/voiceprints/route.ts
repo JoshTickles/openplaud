@@ -7,6 +7,10 @@ import {
     voiceprintSamples,
 } from "@/db/schema";
 import { auth } from "@/lib/auth";
+import {
+    findVoiceprintByName,
+    mergeVoiceprintInto,
+} from "@/lib/voiceprints/merge";
 
 export async function GET(request: Request) {
     try {
@@ -102,23 +106,40 @@ export async function PATCH(request: Request) {
             );
         }
 
-        const [updated] = await db
-            .update(speakerVoiceprints)
-            .set({ name, updatedAt: new Date() })
+        const [target] = await db
+            .select({ id: speakerVoiceprints.id })
+            .from(speakerVoiceprints)
             .where(
                 and(
                     eq(speakerVoiceprints.id, id),
                     eq(speakerVoiceprints.userId, session.user.id),
                 ),
             )
-            .returning({ id: speakerVoiceprints.id });
+            .limit(1);
 
-        if (!updated) {
+        if (!target) {
             return NextResponse.json(
                 { error: "Voiceprint not found" },
                 { status: 404 },
             );
         }
+
+        // Renaming onto a name that already exists is how two entries for one
+        // person get reconciled, so combine them instead of refusing.
+        const clash = await findVoiceprintByName(session.user.id, name);
+        if (clash && clash.id !== id) {
+            await mergeVoiceprintInto(id, clash.id);
+            await db
+                .update(speakerVoiceprints)
+                .set({ name, updatedAt: new Date() })
+                .where(eq(speakerVoiceprints.id, clash.id));
+            return NextResponse.json({ success: true, merged: true });
+        }
+
+        await db
+            .update(speakerVoiceprints)
+            .set({ name, updatedAt: new Date() })
+            .where(eq(speakerVoiceprints.id, id));
 
         return NextResponse.json({ success: true });
     } catch (error) {

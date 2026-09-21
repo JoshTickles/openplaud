@@ -102,9 +102,33 @@ A voiceprint is the mean of its samples, one sample per recording, so a voice
 improves as it is seen again. Matching is **suggest-only**: a name is never
 written automatically. `DEFAULT_MATCH_THRESHOLD` is 0.5.
 
+There is no separate enrolment step. Naming a speaker on a transcript *is* the
+enrolment: the save stores the name and files that speaker's voiceprint under
+it. Names are matched case- and whitespace-insensitively, so "Hara-san" after
+"Hara-San" strengthens the one voice instead of starting a second, and the
+editor offers names already in the library as you type. Renaming a voiceprint
+onto a name that already exists merges the two rather than erroring, which is
+how two entries for one person get reconciled.
+
 Individual samples can be auditioned and removed in Settings -> Voiceprints,
 which recomputes the mean; that is the remedy if a mislabelled turn ever
 poisons a voiceprint.
+
+### Auditing the library
+
+Two checks catch a poisoned library, both of which come free from the stored
+sample embeddings:
+
+- **Internal consistency.** Samples sharing a name should be mutually similar.
+  One sample with a low median similarity to its siblings was attributed to the
+  wrong person in that recording.
+- **Cross-name collision.** Two different names whose centroids sit above the
+  merge threshold are either one person under two spellings, or two names that
+  have been swapped.
+
+Libraries built before 2026-09 can contain both faults, because centroids were
+keyed by diarizer label and matched back to names by sorted order, which
+guesses wrong whenever the diarizer's ordering does not match the transcript's.
 
 ## When it does not run
 

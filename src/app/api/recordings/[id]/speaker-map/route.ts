@@ -8,6 +8,8 @@ import {
     voiceprintSamples,
 } from "@/db/schema";
 import { auth } from "@/lib/auth";
+import { findVoiceprintByName } from "@/lib/voiceprints/merge";
+import { isPlaceholderSpeakerName } from "@/lib/voiceprints/names";
 import { recomputeVoiceprint } from "@/lib/voiceprints/recompute";
 import {
     centroidForTranscriptLabel,
@@ -61,20 +63,24 @@ export async function GET(
             .where(eq(transcriptions.recordingId, id))
             .limit(1);
 
-        // Suggest names for unnamed speakers by matching this recording's
-        // centroids against the user's saved voiceprint library.
-        let suggestions: Record<string, { name: string; similarity: number }> =
-            {};
+        // The saved voiceprint library serves two purposes here: suggesting a
+        // name for each unnamed speaker, and offering the names already in use
+        // so the editor does not let one person accrue two spellings.
+        const library = await db
+            .select({
+                name: speakerVoiceprints.name,
+                embedding: speakerVoiceprints.embedding,
+                sampleCount: speakerVoiceprints.sampleCount,
+            })
+            .from(speakerVoiceprints)
+            .where(eq(speakerVoiceprints.userId, session.user.id));
+
+        const suggestions: Record<
+            string,
+            { name: string; similarity: number }
+        > = {};
         const centroids = transcription?.speakerCentroids;
         if (centroids && Object.keys(centroids).length > 0) {
-            const library = await db
-                .select({
-                    name: speakerVoiceprints.name,
-                    embedding: speakerVoiceprints.embedding,
-                    sampleCount: speakerVoiceprints.sampleCount,
-                })
-                .from(speakerVoiceprints)
-                .where(eq(speakerVoiceprints.userId, session.user.id));
             const matched = matchSpeakers(centroids, library as Voiceprint[]);
             for (const [label, m] of Object.entries(matched)) {
                 if (m.name) {
@@ -89,6 +95,7 @@ export async function GET(
         return NextResponse.json({
             speakerMap: transcription?.speakerMap ?? null,
             suggestions,
+            knownNames: library.map((v) => v.name).sort(),
         });
     } catch (error) {
         console.error("Error fetching speaker map:", error);
@@ -211,15 +218,18 @@ export async function PATCH(
 }
 
 /**
- * Fold confirmed speaker names into the user's voiceprint library. The
- * speakerMap is keyed by the transcript's "Speaker N" labels, while centroids
- * are keyed by diarize "SPEAKER_NN" labels; centroidForTranscriptLabel bridges
- * the two namespaces.
+ * Fold confirmed speaker names into the user's voiceprint library. Centroids
+ * are normally keyed by the same "Speaker N" labels as the speakerMap;
+ * centroidForTranscriptLabel also resolves the legacy "SPEAKER_NN" keys left
+ * by recordings transcribed before the diarization pre-pass was removed.
  *
  * Each named speaker contributes one sample per recording (upserted, so
  * re-saving the same recording updates in place rather than double-counting).
  * The voiceprint embedding is then recomputed as the mean of all its samples,
  * so removing a bad sample later self-corrects the voiceprint.
+ *
+ * Names are matched case-insensitively, so tagging "Hara-san" after "Hara-San"
+ * strengthens the existing voice rather than starting a second one.
  */
 async function enrollVoiceprints(
     userId: string,
@@ -244,23 +254,13 @@ async function enrollVoiceprints(
         const name = rawName.trim();
         const centroid = centroidForTranscriptLabel(label, centroids);
         if (!name || !centroid || centroid.length === 0) continue;
-        // Skip pass-through labels like "Speaker 1" that aren't real names.
-        if (/^speaker\s*\d+$/i.test(name)) continue;
+        if (isPlaceholderSpeakerName(name)) continue;
 
         const diarizeKey = diarizeKeyForLabel(label);
         const seg = diarizeKey ? segments?.[diarizeKey] : undefined;
 
         // Find or create the voiceprint row for this name.
-        const [existing] = await db
-            .select({ id: speakerVoiceprints.id })
-            .from(speakerVoiceprints)
-            .where(
-                and(
-                    eq(speakerVoiceprints.userId, userId),
-                    eq(speakerVoiceprints.name, name),
-                ),
-            )
-            .limit(1);
+        const existing = await findVoiceprintByName(userId, name);
 
         let voiceprintId: string;
         if (existing) {

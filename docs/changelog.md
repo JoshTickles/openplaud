@@ -1,5 +1,10 @@
 # Changelog
 
+- [Fixed]: Voiceprint name matching is now case- and whitespace-insensitive, so tagging "Hara-san" after "Hara-San" strengthens the existing voice instead of creating a second half-trained one (josh, 2026-09-21)
+- [Added]: Speaker name inputs now autocomplete from names already in the voiceprint library, so tagging converges on one entry per person (josh, 2026-09-21)
+- [Changed]: Renaming a voiceprint onto an existing name now merges the two entries instead of returning a 409, which is how duplicates get reconciled (josh, 2026-09-21)
+- [Fixed]: Name suggestions no longer silently vanish on newly transcribed recordings — the editor only accepted legacy `SPEAKER_NN` suggestion keys and dropped the `Speaker N` keys the current pipeline emits (josh, 2026-09-21)
+
 - [Changed]: Speaker fingerprinting now samples ~18s per speaker from the transcript's own `[m:ss]` timestamps instead of diarizing the whole file, using fixed 3s windows and seek-based reads so memory stays flat regardless of recording length (josh, 2026-09-21)
 - [Fixed]: Long recordings no longer silently lose all voiceprints — the old diarization pre-pass was OOM-killed (4.3GB peak, exit 137) on a 29-minute meeting and the failure was swallowed, leaving only 24 of 132 transcriptions with fingerprint data (josh, 2026-09-21)
 - [Added]: Over-split speakers are merged by voiceprint similarity (cosine >= 0.6) and renumbered, repairing the ~1-in-5 meetings where the model split one person across two labels (josh, 2026-09-21)

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { suggestNames } from "@/lib/voiceprints/names";
 
 interface SpeakerLabelEditorProps {
     recordingId: string;
@@ -54,6 +55,9 @@ export function SpeakerLabelEditor({
     const [suggestions, setSuggestions] = useState<
         Record<string, { name: string; similarity: number }>
     >({});
+    // Names already in the voiceprint library, offered while typing so one
+    // person does not end up with two entries under two spellings.
+    const [knownNames, setKnownNames] = useState<string[]>([]);
 
     useEffect(() => {
         setLocalMap(speakerMap ?? {});
@@ -69,17 +73,24 @@ export function SpeakerLabelEditor({
                 );
                 if (!res.ok) return;
                 const data = await res.json();
-                // API keys suggestions by diarize label SPEAKER_NN; map to the
-                // transcript's "Speaker N" (N = NN+1) that the editor renders.
+                // Suggestions arrive keyed by the transcript's own "Speaker N"
+                // labels. Recordings transcribed before the diarization
+                // pre-pass was removed are keyed "SPEAKER_NN" (N = NN+1)
+                // instead, so accept both rather than dropping the ones that
+                // do not match the older shape.
                 const raw: Record<string, { name: string; similarity: number }> =
                     data.suggestions ?? {};
                 const mapped: typeof raw = {};
                 for (const [label, s] of Object.entries(raw)) {
-                    const m = label.match(/SPEAKER_(\d+)/i);
-                    if (!m) continue;
-                    mapped[`Speaker ${Number(m[1]) + 1}`] = s;
+                    const legacy = label.match(/^SPEAKER_(\d+)$/i);
+                    mapped[
+                        legacy ? `Speaker ${Number(legacy[1]) + 1}` : label
+                    ] = s;
                 }
-                if (!cancelled) setSuggestions(mapped);
+                if (!cancelled) {
+                    setSuggestions(mapped);
+                    setKnownNames(data.knownNames ?? []);
+                }
             } catch {
                 // Suggestions are best-effort; silence is fine.
             }
@@ -182,10 +193,20 @@ export function SpeakerLabelEditor({
                                 }
                                 className="h-7 text-xs flex-1"
                                 maxLength={100}
+                                list={`voiceprint-names-${recordingId}`}
+                                autoComplete="off"
                                 onKeyDown={(e) => {
                                     if (e.key === "Enter" && hasChanges) handleSave();
                                 }}
                             />
+                            <datalist id={`voiceprint-names-${recordingId}`}>
+                                {suggestNames(
+                                    localMap[speaker] ?? "",
+                                    knownNames,
+                                ).map((n) => (
+                                    <option key={n} value={n} />
+                                ))}
+                            </datalist>
                             {suggestion && isUnnamed && (
                                 <button
                                     type="button"
