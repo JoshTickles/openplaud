@@ -6,11 +6,7 @@ import {
 } from "@/lib/transcription/speaker-linking";
 import {
     WINDOW_SECONDS,
-    applyLabelMapping,
-    mergeAdjacentSameSpeakerTurns,
-    relabelTurns,
     representativeTurns,
-    resolveSpeakerLabels,
     selectSampleWindows,
 } from "@/lib/transcription/speaker-sampling";
 import {
@@ -363,8 +359,6 @@ interface BackendCallContext {
 }
 
 interface SpeakerResolution {
-    /** Emitted label -> final label, after merging over-split speakers. */
-    mapping: Record<string, string>;
     centroids: Record<string, number[]>;
     segments: Record<string, { start: number; end: number }>;
 }
@@ -392,7 +386,6 @@ async function resolveSpeakersFromTranscript(
     }
 
     const windows = selectSampleWindows(turns);
-    const labels = [...new Set(turns.map((t) => t.label))];
     if (Object.keys(windows).length === 0) {
         console.warn("[Voiceprint] No turn was long enough to sample");
         return undefined;
@@ -403,24 +396,8 @@ async function resolveSpeakersFromTranscript(
         windows,
         WINDOW_SECONDS,
     );
-    const resolved = resolveSpeakerLabels(labels, centroids);
 
-    const collapsed = Object.entries(resolved.merged).filter(
-        ([, members]) => members.length > 1,
-    );
-    if (collapsed.length > 0) {
-        console.log(
-            `[Voiceprint] Merged over-split speakers: ${collapsed
-                .map(([final, members]) => `${members.join("+")} -> ${final}`)
-                .join(", ")}`,
-        );
-    }
-
-    return {
-        mapping: resolved.mapping,
-        centroids: resolved.centroids,
-        segments: representativeTurns(relabelTurns(turns, resolved.mapping)),
-    };
+    return { centroids, segments: representativeTurns(turns) };
 }
 
 /**
@@ -457,7 +434,7 @@ async function finalizeTranscript(
         } catch (err) {
             console.error("[Voiceprint] Speaker fingerprinting failed:", err);
             speakerNotice =
-                "Speaker fingerprinting failed for this recording. The transcript is unaffected, but no voiceprints were saved and speakers may be over-split.";
+                "Speaker fingerprinting failed for this recording. The transcript is unaffected, but no voiceprints were saved.";
         }
         if (speakerNotice) console.warn(`[Voiceprint] ${speakerNotice}`);
     }
@@ -476,13 +453,6 @@ async function finalizeTranscript(
         if (text.length < before) {
             console.log(`[Transcribe] Removed backchannel-only turns: ${before} → ${text.length} chars`);
         }
-    }
-    // Relabel last, so merging adjacent turns also absorbs gaps left by
-    // backchannel removal.
-    if (resolution) {
-        text = mergeAdjacentSameSpeakerTurns(
-            applyLabelMapping(text, resolution.mapping),
-        );
     }
     const compressionWarning = wasCompressed
         ? `This recording was large (>${Math.round(LARGE_AUDIO_THRESHOLD_BYTES / 1024 / 1024)} MB) and was automatically compressed to 16 kHz mono before transcription. Accuracy should be fine for speech, but audio quality artefacts or overlapping voices may be less precisely rendered.`

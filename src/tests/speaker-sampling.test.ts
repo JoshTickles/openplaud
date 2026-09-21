@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-    DEFAULT_MERGE_SIMILARITY,
-    applyLabelMapping,
-    mergeAdjacentSameSpeakerTurns,
-    resolveSpeakerLabels,
+    representativeTurns,
     selectSampleWindows,
 } from "@/lib/transcription/speaker-sampling";
 
@@ -78,120 +75,27 @@ describe("selectSampleWindows", () => {
     });
 });
 
-// Two well-separated voices, plus a near-duplicate of the first.
-const VOICE_A = [1, 0, 0, 0];
-const VOICE_A_AGAIN = [0.97, 0.05, 0.1, 0];
-const VOICE_B = [0, 1, 0, 0];
-
-describe("resolveSpeakerLabels", () => {
-    it("folds an over-split speaker back together and renumbers", () => {
-        const resolved = resolveSpeakerLabels(
-            ["Speaker 1", "Speaker 2", "Speaker 3"],
-            {
-                "Speaker 1": VOICE_A,
-                "Speaker 2": VOICE_B,
-                "Speaker 3": VOICE_A_AGAIN, // really Speaker 1
-            },
-        );
-        expect(resolved.mapping).toEqual({
-            "Speaker 1": "Speaker 1",
-            "Speaker 3": "Speaker 1",
-            "Speaker 2": "Speaker 2",
+describe("representativeTurns", () => {
+    it("picks each speaker's longest turn, capped", () => {
+        const turns = [
+            { label: "Speaker 1", start: 0, end: 4, text: "short" },
+            { label: "Speaker 1", start: 10, end: 40, text: "long" },
+            { label: "Speaker 2", start: 50, end: 56, text: "only" },
+        ];
+        expect(representativeTurns(turns, 12)).toEqual({
+            "Speaker 1": { start: 10, end: 22 },
+            "Speaker 2": { start: 50, end: 56 },
         });
-        expect(resolved.merged["Speaker 1"]).toEqual(["Speaker 1", "Speaker 3"]);
-        expect(Object.keys(resolved.centroids).sort()).toEqual([
+    });
+
+    it("keeps the model's labels exactly as emitted", () => {
+        const turns = [
+            { label: "Speaker 4", start: 0, end: 20, text: "a" },
+            { label: "Speaker 1", start: 30, end: 50, text: "b" },
+        ];
+        expect(Object.keys(representativeTurns(turns)).sort()).toEqual([
             "Speaker 1",
-            "Speaker 2",
+            "Speaker 4",
         ]);
-    });
-
-    it("leaves genuinely distinct speakers alone", () => {
-        const resolved = resolveSpeakerLabels(["Speaker 1", "Speaker 2"], {
-            "Speaker 1": VOICE_A,
-            "Speaker 2": VOICE_B,
-        });
-        expect(resolved.mapping).toEqual({
-            "Speaker 1": "Speaker 1",
-            "Speaker 2": "Speaker 2",
-        });
-    });
-
-    it("renumbers contiguously when a low-numbered label is absorbed", () => {
-        const resolved = resolveSpeakerLabels(
-            ["Speaker 1", "Speaker 2", "Speaker 3"],
-            {
-                "Speaker 1": VOICE_A,
-                "Speaker 2": VOICE_A_AGAIN, // merges into Speaker 1
-                "Speaker 3": VOICE_B,
-            },
-        );
-        // Speaker 3 becomes Speaker 2; no gap is left behind.
-        expect(resolved.mapping["Speaker 3"]).toBe("Speaker 2");
-        expect(new Set(Object.values(resolved.mapping)).size).toBe(2);
-    });
-
-    it("keeps a label with no centroid as its own speaker", () => {
-        const resolved = resolveSpeakerLabels(["Speaker 1", "Speaker 2"], {
-            "Speaker 1": VOICE_A,
-        });
-        expect(resolved.mapping["Speaker 2"]).toBe("Speaker 2");
-        expect(resolved.centroids["Speaker 2"]).toBeUndefined();
-    });
-
-    it("respects the threshold: a looser one merges what a strict one keeps apart", () => {
-        const borderline = { "Speaker 1": VOICE_A, "Speaker 2": [0.7, 0.71, 0, 0] };
-        const labels = ["Speaker 1", "Speaker 2"];
-        expect(
-            resolveSpeakerLabels(labels, borderline, 0.9).mapping["Speaker 2"],
-        ).toBe("Speaker 2");
-        expect(
-            resolveSpeakerLabels(labels, borderline, 0.4).mapping["Speaker 2"],
-        ).toBe("Speaker 1");
-    });
-
-    it("uses a threshold that separates real measured voices", () => {
-        // Distinct speakers in one recording measured 0.13-0.35; the same person
-        // across recordings measured 0.91.
-        expect(DEFAULT_MERGE_SIMILARITY).toBeGreaterThan(0.35);
-        expect(DEFAULT_MERGE_SIMILARITY).toBeLessThan(0.91);
-    });
-});
-
-describe("applyLabelMapping", () => {
-    it("applies a renumbering that reuses labels without collapsing everyone", () => {
-        const text = [
-            "[0:05] Speaker 1: a",
-            "",
-            "[0:10] Speaker 2: b",
-            "",
-            "[0:20] Speaker 3: c",
-        ].join("\n");
-        const out = applyLabelMapping(text, {
-            "Speaker 1": "Speaker 1",
-            "Speaker 2": "Speaker 1",
-            "Speaker 3": "Speaker 2",
-        });
-        expect(out).toContain("[0:10] Speaker 1: b");
-        expect(out).toContain("[0:20] Speaker 2: c");
-    });
-
-    it("leaves body text and unmapped labels untouched", () => {
-        const text = "Speaker 1: I told Speaker 2: nothing\n\nSpeaker 9: hi";
-        const out = applyLabelMapping(text, { "Speaker 1": "Speaker 2" });
-        expect(out).toBe("Speaker 2: I told Speaker 2: nothing\n\nSpeaker 9: hi");
-    });
-});
-
-describe("mergeAdjacentSameSpeakerTurns", () => {
-    it("joins turns that a merge left adjacent", () => {
-        const text = "Speaker 1: first.\n\nSpeaker 1: second.\n\nSpeaker 2: reply.";
-        expect(mergeAdjacentSameSpeakerTurns(text)).toBe(
-            "Speaker 1: first. second.\n\nSpeaker 2: reply.",
-        );
-    });
-
-    it("does not join turns separated by another speaker", () => {
-        const text = "Speaker 1: a\n\nSpeaker 2: b\n\nSpeaker 1: c";
-        expect(mergeAdjacentSameSpeakerTurns(text)).toBe(text);
     });
 });

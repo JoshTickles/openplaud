@@ -7,13 +7,12 @@ remembers voices across recordings.
 
 The transcription model labels speakers itself from the audio and prefixes every
 turn with a `[m:ss]` timestamp. Those timestamps make the transcript
-self-describing, so afterwards we can sample a small amount of audio per label,
-embed it into a voiceprint, and use those voiceprints for two things:
+self-describing, so afterwards we sample a small amount of audio per label and
+embed it into a voiceprint.
 
-1. **Repair the labels.** Two labels whose voiceprints match are the same person
-   split in two, so they are merged and the speakers renumbered.
-2. **Remember the voice.** Naming a speaker saves their voiceprint, so the next
-   recording can suggest the name.
+**The model's speaker count and labels are authoritative and are never
+rewritten.** The voiceprints exist for one purpose: naming a speaker saves their
+voiceprint, so the next recording can suggest the name.
 
 There is no separate diarization pass over the audio. See
 [Why the diarization pre-pass was removed](#why-the-diarization-pre-pass-was-removed).
@@ -24,11 +23,7 @@ flowchart TD
     B --> C[parse turns<br/>label + time range]
     C --> D[select sample windows<br/>~18s per label, 3s each]
     D --> E[embed-speaker-turns.py<br/>one centroid per label]
-    E --> F{two labels<br/>similarity >= 0.6?}
-    F -->|yes| G[merge + renumber<br/>rewrite transcript]
-    F -->|no| H[keep as distinct speakers]
-    G --> I[store centroids keyed by final label]
-    H --> I
+    E --> I[store centroids keyed by<br/>the model's own label]
     I --> J[match against voiceprint library<br/>-> suggest a name]
     J --> K[user names a speaker<br/>-> enrol / update voiceprint]
 ```
@@ -50,48 +45,41 @@ interjects gets no voiceprint**. They keep their own label and simply cannot be
 name-matched. A speaker who appears only at the very end is sampled normally,
 because sampling is per turn, not spread across the timeline.
 
-## Merging over-split speakers
+## Why labels are never merged
 
-`resolveSpeakerLabels` walks the labels in numeric order and groups any whose
-centroid is within `DEFAULT_MERGE_SIMILARITY` (0.6 cosine) of a group already
-formed, recomputing the group centroid as it goes. The lowest-numbered label
-wins, and the surviving groups are renumbered to a contiguous `Speaker 1..N`.
+An earlier version compared the per-label voiceprints and merged any pair above
+0.6 cosine, on the theory that the model over-splits one person into two labels.
+That was wrong in practice and has been removed.
 
-The threshold is set from measurements on real recordings in this deployment:
+On a real 36-minute meeting with four people the model emitted exactly four
+labels, and the merge folded two of them together:
 
-| Comparison | Measured |
-|------------|----------|
-| Two different speakers in the same meeting | 0.13 - 0.35 (0.158 on a 12 s vs 9 s sample pair) |
-| Same person, two unrelated meetings | 0.91 |
-| Sampled speaker vs their own library voiceprint | 0.75 (Josh), 0.62 (Parm) from 12 s and 9 s of audio |
+```
+[Voiceprint] Embedded 24 windows for 4 speakers
+[Voiceprint] Merged over-split speakers: Speaker 1+Speaker 4 -> Speaker 1
+```
 
-The same/different gap is wide, so the exact threshold is not delicate. It is not
-unlimited, though: the closest pair of *different* people in the library measures
-0.54, so 0.6 is deliberately above that rather than comfortably clear of it. If
-two people are ever wrongly merged, raise `DEFAULT_MERGE_SIMILARITY` rather than
-adding a second mechanism.
+The failure mode is structural, not a threshold that needs tuning. Same-person
+similarity measures around 0.90-0.96, and distinct speakers usually 0.13-0.35,
+but "usually" is doing real work there: two people sampled from short turns, or
+with genuinely similar voices, can land above 0.6. A merge is also
+unrecoverable, since it rewrites the transcript, while an over-split costs one
+extra rename. The asymmetry is the whole argument.
 
-Why this is needed at all: unaided, the model over-splits about one meeting in
-five. Measured against hand-named speakers across 97 transcripts, on four-person
-meetings it emitted 5.0 labels on average for 4 real people. Given an explicit
-count it emitted exactly 4.0. Rather than pay for a full diarization pass to
-obtain that count, the voiceprints supply the correction after the fact, which
-only requires answering "are these two the same voice".
-
-A per-recording speaker count is still available in the UI. When set, it is
-passed to the model as an exact count and the merge step runs as usual.
+If over-splitting does show up, the per-recording speaker count in the UI passes
+an exact count to the model, which is the mechanism that measurably fixes it.
 
 ## Storage
 
 | Column | Contents |
 |--------|----------|
-| `transcriptions.speaker_centroids` | Final label -> 256-dim L2-normalised centroid |
-| `transcriptions.speaker_segments` | Final label -> longest turn `{start, end}`, capped at 12 s, for snippet playback |
-| `transcriptions.speaker_map` | Final label -> human name, set by the user |
+| `transcriptions.speaker_centroids` | Speaker label -> 256-dim L2-normalised centroid |
+| `transcriptions.speaker_segments` | Speaker label -> longest turn `{start, end}`, capped at 12 s, for snippet playback |
+| `transcriptions.speaker_map` | Speaker label -> human name, set by the user |
 | `speaker_voiceprints` / `voiceprint_samples` | The cross-recording library; see [Voiceprints](#voiceprints) |
 
-Centroids are keyed by the **final** transcript label (`Speaker 2`), so naming a
-speaker attaches the name to the right voice with no extra mapping step.
+Centroids are keyed by the model's own transcript label (`Speaker 2`), so naming
+a speaker attaches the name to the right voice with no extra mapping step.
 Recordings transcribed before 2026-09 stored diarizer-native keys
 (`SPEAKER_00`); `centroidForTranscriptLabel` still reads those by sorted-order
 fallback, so older transcripts keep working.
@@ -141,9 +129,9 @@ case applies, when:
 - no turn was long enough to hold a window,
 - or the embedding subprocess failed.
 
-In every case the transcript itself is unaffected. What is lost is the label
-repair and the saved voiceprints, so speakers may be over-split and no name
-suggestions will appear for that recording.
+In every case the transcript itself is unaffected, including its speaker labels.
+What is lost is the saved voiceprints, so no name suggestions will appear for
+that recording.
 
 ## Why the diarization pre-pass was removed
 
@@ -176,7 +164,7 @@ file, and keeps memory flat regardless of recording length.
 |------|------|
 | `scripts/embed-speaker-turns.py` | Reads windows from stdin, emits one centroid per label |
 | `src/lib/transcription/voiceprint-extract.ts` | Spawns the script, availability check |
-| `src/lib/transcription/speaker-sampling.ts` | Window selection, merging, transcript relabelling (pure) |
+| `src/lib/transcription/speaker-sampling.ts` | Window selection and snippet ranges (pure) |
 | `src/lib/transcription/speaker-linking.ts` | Parses `[m:ss]` turns out of a transcript, strips timestamps (pure) |
 | `src/lib/transcription/voiceprint-match.ts` | Cosine matching against the library, enrolment maths (pure) |
 | `src/lib/voiceprints/recompute.ts` | Recomputes a voiceprint from its samples |

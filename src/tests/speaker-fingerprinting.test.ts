@@ -23,8 +23,12 @@ function stream(text: string) {
     });
 }
 
-/** Speaker 1 and Speaker 3 are one person the model split in two. */
-const OVER_SPLIT = [
+/**
+ * Speaker 1 and Speaker 3 have near-identical voiceprints. They must still be
+ * kept apart: the model heard four people on a real recording and an earlier
+ * similarity-merge collapsed two of them, so the model's count is trusted.
+ */
+const SIMILAR_VOICES = [
     "[0:00] Speaker 1: I'll kick us off with the migration status.",
     "",
     "[0:20] Speaker 2: Sounds good, what's the blocker there?",
@@ -33,7 +37,7 @@ const OVER_SPLIT = [
 ].join("\n\n");
 
 const VOICE_A = [1, 0, 0, 0];
-const VOICE_A_AGAIN = [0.98, 0.04, 0.08, 0];
+const VOICE_A_AGAIN = [0.99, 0.02, 0.04, 0];
 const VOICE_B = [0, 1, 0, 0];
 
 async function transcribe(options: Record<string, unknown> = {}) {
@@ -55,7 +59,7 @@ describe("speaker fingerprinting in the transcription path", () => {
         vi.clearAllMocks();
         process.env.TRANSCRIPTION_BACKEND = "vertex";
         process.env.GOOGLE_PROJECT_ID = "test-project";
-        generateContentStream.mockImplementation(() => stream(OVER_SPLIT));
+        generateContentStream.mockImplementation(() => stream(SIMILAR_VOICES));
         isVoiceprintEmbeddingAvailable.mockResolvedValue(true);
         embedSpeakerTurns.mockResolvedValue({
             centroids: {
@@ -88,28 +92,30 @@ describe("speaker fingerprinting in the transcription path", () => {
         }
     });
 
-    it("merges the over-split speaker in the transcript and renumbers", async () => {
+    it("never rewrites the model's speaker labels, however alike two voices are", async () => {
         const result = await transcribe();
 
-        // Speaker 3 was really Speaker 1; Speaker 2 becomes Speaker 2 still.
         expect(result.text).toContain("certificate rotation");
-        expect(result.text).not.toMatch(/Speaker 3/);
         const labels = [...result.text.matchAll(/^(Speaker \d+):/gm)].map(
             (m) => m[1],
         );
-        expect(new Set(labels)).toEqual(new Set(["Speaker 1", "Speaker 2"]));
+        expect(new Set(labels)).toEqual(
+            new Set(["Speaker 1", "Speaker 2", "Speaker 3"]),
+        );
     });
 
-    it("stores centroids and snippet ranges keyed by the final label", async () => {
+    it("stores one centroid and snippet range per label the model emitted", async () => {
         const result = await transcribe();
 
         expect(Object.keys(result.speakerCentroids ?? {}).sort()).toEqual([
             "Speaker 1",
             "Speaker 2",
+            "Speaker 3",
         ]);
         expect(Object.keys(result.speakerSegments ?? {}).sort()).toEqual([
             "Speaker 1",
             "Speaker 2",
+            "Speaker 3",
         ]);
         expect(result.speakerNotice).toBeUndefined();
     });
@@ -137,7 +143,6 @@ describe("speaker fingerprinting in the transcription path", () => {
 
         expect(result.speakerNotice).toMatch(/failed/i);
         expect(result.text).toContain("certificate rotation");
-        // Labels are left as the model emitted them rather than guessed at.
         expect(result.text).toMatch(/Speaker 3/);
     });
 

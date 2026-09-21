@@ -1,5 +1,7 @@
 # Changelog
 
+- [Fixed]: Speaker labels from the transcription model are now authoritative and never rewritten. The similarity merge folded two real people together on a 4-speaker recording, and a wrong merge is unrecoverable while an over-split costs one rename, so it has been removed (josh, 2026-09-21)
+
 - [Fixed]: Voiceprint name matching is now case- and whitespace-insensitive, so tagging "Hara-san" after "Hara-San" strengthens the existing voice instead of creating a second half-trained one (josh, 2026-09-21)
 - [Added]: Speaker name inputs now autocomplete from names already in the voiceprint library, so tagging converges on one entry per person (josh, 2026-09-21)
 - [Changed]: Renaming a voiceprint onto an existing name now merges the two entries instead of returning a 409, which is how duplicates get reconciled (josh, 2026-09-21)
