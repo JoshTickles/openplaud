@@ -219,6 +219,9 @@ export function Workstation({ recordings, transcriptions, allTags }: Workstation
                             if (event.result.compressionWarning) {
                                 toast.warning(event.result.compressionWarning, { duration: 10000 });
                             }
+                            if (event.result.failoverNotice) {
+                                toast.warning(event.result.failoverNotice, { duration: 12000 });
+                            }
                             router.refresh();
                         }
                     } catch { /* skip malformed events */ }

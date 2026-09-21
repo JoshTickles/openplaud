@@ -184,6 +184,9 @@ export const transcriptions = pgTable(
             .default("server"), // 'server' or 'browser'
         provider: varchar("provider", { length: 100 }).notNull(), // e.g., 'openai', 'groq', 'browser'
         model: varchar("model", { length: 100 }).notNull(), // e.g., 'whisper-1', 'whisper-large-v3-turbo', 'whisper-base'
+        // Backend that produced the transcript: 'vertex', 'litellm', or
+        // 'vertex-failover' when LiteLLM was configured but unavailable.
+        transcriptionBackend: varchar("transcription_backend", { length: 20 }),
         speakerMap: jsonb("speaker_map").$type<Record<string, string>>(),
         // Per-speaker diarization centroids (SPEAKER_NN -> embedding), kept so
         // speaker names can be matched/enrolled against the voiceprint library.

@@ -23,6 +23,7 @@ interface Transcription {
     text?: string;
     detectedLanguage?: string;
     transcriptionType?: string;
+    transcriptionBackend?: string | null;
 }
 
 interface Enhancement {
@@ -225,6 +226,7 @@ export function RecordingWorkstation({
                         initialTranscription={transcription?.text}
                         initialLanguage={transcription?.detectedLanguage}
                         initialType={transcription?.transcriptionType}
+                        initialBackend={transcription?.transcriptionBackend}
                         duration={recording.duration}
                         plaudFileId={recording.plaudFileId}
                     />

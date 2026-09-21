@@ -1,5 +1,9 @@
 # Changelog
 
+- [Added]: Automatic LiteLLM to Vertex AI transcription failover with a per-failure-kind cooldown (budget 30 min, rate limit 5 min, server 2 min), so a capped or throttled proxy no longer fails a transcription (josh, 2026-09-21)
+- [Added]: `transcriptions.transcription_backend` column (migration 0020) plus a backend badge and warning toast in the UI, recording whether a transcript came from litellm, vertex, or a vertex failover (josh, 2026-09-21)
+- [Added]: `docs/TRANSCRIPTION_BACKENDS.md` documenting both backends, the failover policy, and Vertex credential management; documented the transcription backend env vars in `.env.example` (josh, 2026-09-21)
+
 - [Added]: "Push to Obsidian" button on dashboard — manual one-way push of transcriptions to Obsidian vault with speaker names applied, recording tags in YAML frontmatter, and AI enhancement sections (summary, key points, action items as checkboxes) (josh, 2026-03-25)
 - [Changed]: Auto-push to Obsidian after saving speaker names — silently pushes if configured, silently skips if not (josh, 2026-03-25)
 - [Fixed]: Obsidian vault path no longer prepends redundant date to note filename — uses recording title directly since filenames already contain dates (josh, 2026-03-25)

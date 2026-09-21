@@ -12,6 +12,14 @@ import {
     rekeyByLink,
     stripTimestamps,
 } from "@/lib/transcription/speaker-linking";
+import {
+    LitellmHttpError,
+    canFailover,
+    classifyLitellmFailure,
+    describeCooldown,
+    describeFailover,
+    litellmCooldown,
+} from "@/lib/transcription/backend-failover";
 import type {
     TranscriptionOptions,
     TranscriptionProvider,
@@ -338,6 +346,18 @@ async function compressAudioIfNeeded(
 
 type TranscribeBackend = "vertex" | "litellm";
 
+/** Everything a backend needs to turn prepared audio into a transcript. Shared
+ * so either backend can serve the same request, primary or as failover. */
+interface BackendCallContext {
+    audioToSend: Buffer;
+    effectiveMimeType: string;
+    wasCompressed: boolean;
+    useDiarization: boolean;
+    diarizeResult?: DiarizeResult;
+    prompt: string;
+    options: TranscriptionOptions;
+}
+
 /**
  * Shared post-processing for raw model output, used by both the Vertex and
  * LiteLLM backends: repetition-loop removal, speaker blank-line normalisation,
@@ -473,8 +493,7 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
             signal: AbortSignal.timeout(1_800_000),
         });
         if (!res.ok) {
-            const body = await res.text();
-            throw new Error(`LiteLLM transcribe ${res.status}: ${body.slice(0, 400)}`);
+            throw new LitellmHttpError(res.status, await res.text());
         }
         const json = (await res.json()) as {
             choices?: { message?: { content?: string } }[];
@@ -526,20 +545,82 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
         );
 
         onProgress?.(40, "Transcribing");
-        const callStart = Date.now();
 
-        // --- LiteLLM proxy backend: audio via chat-completions input_audio ---
-        if (this.backend === "litellm") {
-            const audioFormat =
-                mimeTypeForGemini(effectiveMimeType).replace("audio/", "") ||
-                "mp3";
-            const audioB64 = audioToSend.toString("base64");
-            console.log(`[LiteLLM] Starting chat transcribe (model=${this.litellmModel}, audioSize=${audioToSend.length}, format=${audioFormat}, diarizeSegments=${diarizeResult?.segments.length ?? 0})`);
-            const rawLL = await this.callViaLiteLLM(audioB64, audioFormat, prompt);
-            console.log(`[LiteLLM] transcribe completed in ${((Date.now() - callStart) / 1000).toFixed(1)}s`);
-            return finalizeTranscript(rawLL, useDiarization, wasCompressed, diarizeResult);
+        const ctx: BackendCallContext = {
+            audioToSend,
+            effectiveMimeType,
+            wasCompressed,
+            useDiarization,
+            diarizeResult,
+            prompt,
+            options,
+        };
+
+        if (this.backend !== "litellm") {
+            return this.transcribeViaVertex(ctx);
         }
 
+        // LiteLLM is configured. Vertex uses separate GCP credentials and a
+        // separate quota, so it can cover a capped or throttled proxy - but
+        // only if this deployment actually has Vertex credentials.
+        if (!this.vertexAvailable()) {
+            return this.transcribeViaLiteLLM(ctx);
+        }
+
+        // A recent failure means LiteLLM is still unhealthy; skip the (slow)
+        // upload that would only fail again.
+        const cooling = litellmCooldown.active();
+        if (cooling) {
+            console.warn(`[Transcribe] LiteLLM in cooldown (${cooling.kind}) - using Vertex`);
+            const result = await this.transcribeViaVertex(ctx);
+            return { ...result, failoverNotice: describeCooldown(cooling) };
+        }
+
+        try {
+            const result = await this.transcribeViaLiteLLM(ctx);
+            litellmCooldown.clear();
+            return result;
+        } catch (err) {
+            const kind = classifyLitellmFailure(err);
+            if (!canFailover(kind)) throw err;
+            const state = litellmCooldown.trip(kind);
+            console.warn(`[Transcribe] LiteLLM failed (${kind}) - failing over to Vertex:`, err);
+            const result = await this.transcribeViaVertex(ctx);
+            return { ...result, failoverNotice: describeFailover(state) };
+        }
+    }
+
+    /** Vertex AI needs a project id; without one, failover is not possible. */
+    private vertexAvailable(): boolean {
+        return this.projectId.length > 0;
+    }
+
+    /** --- LiteLLM proxy backend: audio via chat-completions input_audio --- */
+    private async transcribeViaLiteLLM(
+        ctx: BackendCallContext,
+    ): Promise<TranscriptionResult> {
+        const { audioToSend, effectiveMimeType, wasCompressed, useDiarization, diarizeResult, prompt } = ctx;
+        const callStart = Date.now();
+        const audioFormat =
+            mimeTypeForGemini(effectiveMimeType).replace("audio/", "") || "mp3";
+        const audioB64 = audioToSend.toString("base64");
+        console.log(`[LiteLLM] Starting chat transcribe (model=${this.litellmModel}, audioSize=${audioToSend.length}, format=${audioFormat}, diarizeSegments=${diarizeResult?.segments.length ?? 0})`);
+        const rawLL = await this.callViaLiteLLM(audioB64, audioFormat, prompt);
+        console.log(`[LiteLLM] transcribe completed in ${((Date.now() - callStart) / 1000).toFixed(1)}s`);
+        return {
+            ...finalizeTranscript(rawLL, useDiarization, wasCompressed, diarizeResult),
+            backendUsed: "litellm",
+            modelUsed: this.litellmModel,
+        };
+    }
+
+    /** --- Vertex AI backend: audio inline on generateContentStream --- */
+    private async transcribeViaVertex(
+        ctx: BackendCallContext,
+    ): Promise<TranscriptionResult> {
+        const { audioToSend, effectiveMimeType, wasCompressed, useDiarization, diarizeResult, prompt, options } = ctx;
+        const onProgress = options.onProgress;
+        const callStart = Date.now();
         const modelId = this.resolveModel(options.model);
         const location = this.locationForModel(modelId);
         const ai = new GoogleGenAI({ vertexai: true, project: this.projectId, location });
@@ -624,7 +705,11 @@ export class GoogleSpeechTranscriptionProvider implements TranscriptionProvider 
 
         console.log(`[Gemini] total generateContent time: ${((Date.now() - callStart) / 1000).toFixed(1)}s`);
 
-        return finalizeTranscript(raw, useDiarization, wasCompressed, diarizeResult);
+        return {
+            ...finalizeTranscript(raw, useDiarization, wasCompressed, diarizeResult),
+            backendUsed: this.backend === "litellm" ? "vertex-failover" : "vertex",
+            modelUsed: modelId,
+        };
     }
 
     /**

@@ -86,6 +86,9 @@ export function VoiceMemoWorkstation({
                 if (data.compressionWarning) {
                     toast.warning(data.compressionWarning, { duration: 10000 });
                 }
+                if (data.failoverNotice) {
+                    toast.warning(data.failoverNotice, { duration: 12000 });
+                }
                 router.refresh();
             } else {
                 const error = await response.json();
@@ -117,6 +120,9 @@ export function VoiceMemoWorkstation({
                 toast.success("Re-transcription complete");
                 if (data.compressionWarning) {
                     toast.warning(data.compressionWarning, { duration: 10000 });
+                }
+                if (data.failoverNotice) {
+                    toast.warning(data.failoverNotice, { duration: 12000 });
                 }
                 router.refresh();
             } else {

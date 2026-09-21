@@ -117,6 +117,8 @@ async function handleJsonResponse(
                 transcription: savedTranscription.text,
                 detectedLanguage: savedTranscription.detectedLanguage ?? null,
                 compressionWarning: result.compressionWarning ?? null,
+                failoverNotice: result.failoverNotice ?? null,
+                backend: savedTranscription.transcriptionBackend ?? null,
             }),
             { headers: { "Content-Type": "application/json" } },
         );
@@ -184,6 +186,9 @@ function handleStreamResponse(
                             savedTranscription.detectedLanguage ?? null,
                         compressionWarning:
                             result.compressionWarning ?? null,
+                        failoverNotice: result.failoverNotice ?? null,
+                        backend:
+                            savedTranscription.transcriptionBackend ?? null,
                     },
                 });
             } catch (error) {

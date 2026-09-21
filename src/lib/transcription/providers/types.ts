@@ -9,7 +9,16 @@ export interface TranscriptionResult {
     speakerCentroids?: Record<string, number[]>;
     /** Representative turn {start,end} per speaker label, for snippet playback. */
     speakerSegments?: Record<string, { start: number; end: number }>;
+    /** Which backend actually produced the transcript. */
+    backendUsed?: TranscriptionBackend;
+    /** The model actually used, which differs from the configured one after a failover. */
+    modelUsed?: string;
+    /** Set when the configured backend was unavailable and another one was used. */
+    failoverNotice?: string;
 }
+
+/** `vertex-failover` means LiteLLM was configured but Vertex did the work. */
+export type TranscriptionBackend = "vertex" | "litellm" | "vertex-failover";
 
 export interface TranscriptionOptions {
     language?: string;

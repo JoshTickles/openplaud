@@ -53,7 +53,12 @@ export async function transcribeRecording(
         onProgress?: ProgressCallback;
         speakerCountOverride?: number;
     },
-): Promise<{ success: boolean; error?: string; compressionWarning?: string }> {
+): Promise<{
+    success: boolean;
+    error?: string;
+    compressionWarning?: string;
+    failoverNotice?: string;
+}> {
     let audioTempPath: string | undefined;
     const onProgress = options?.onProgress;
     try {
@@ -243,32 +248,33 @@ export async function transcribeRecording(
             }
         }
 
+        // Record what actually ran, not what was configured: after a backend
+        // failover the model and backend differ from the credential defaults.
+        const savedFields = {
+            text: transcriptionText,
+            detectedLanguage,
+            transcriptionType: "server" as const,
+            provider: effectiveCredentials.provider,
+            model:
+                result.modelUsed ||
+                effectiveCredentials.defaultModel ||
+                "whisper-1",
+            transcriptionBackend: result.backendUsed ?? null,
+            speakerCentroids,
+            speakerSegments,
+            ...(speakerMap ? { speakerMap } : {}),
+        };
+
         if (existingTranscription) {
             await db
                 .update(transcriptions)
-                .set({
-                    text: transcriptionText,
-                    detectedLanguage,
-                    transcriptionType: "server",
-                    provider: effectiveCredentials.provider,
-                    model: effectiveCredentials.defaultModel || "whisper-1",
-                    speakerCentroids,
-                    speakerSegments,
-                    ...(speakerMap ? { speakerMap } : {}),
-                })
+                .set(savedFields)
                 .where(eq(transcriptions.id, existingTranscription.id));
         } else {
             await db.insert(transcriptions).values({
                 recordingId,
                 userId,
-                text: transcriptionText,
-                detectedLanguage,
-                transcriptionType: "server",
-                provider: effectiveCredentials.provider,
-                model: effectiveCredentials.defaultModel || "whisper-1",
-                speakerCentroids,
-                speakerSegments,
-                ...(speakerMap ? { speakerMap } : {}),
+                ...savedFields,
             });
         }
 
@@ -321,7 +327,11 @@ export async function transcribeRecording(
         }
 
         onProgress?.(100, "Complete");
-        return { success: true, compressionWarning: result.compressionWarning };
+        return {
+            success: true,
+            compressionWarning: result.compressionWarning,
+            failoverNotice: result.failoverNotice,
+        };
     } catch (error) {
         console.error("Error transcribing recording:", error);
         return {

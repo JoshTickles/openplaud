@@ -20,8 +20,22 @@ interface TranscriptionSectionProps {
     initialTranscription?: string;
     initialLanguage?: string | null;
     initialType?: string | null;
+    initialBackend?: string | null;
     duration?: number;
     plaudFileId?: string | null;
+}
+
+/** Label for the backend badge; null hides it. */
+function backendLabel(backend?: string | null): string | null {
+    switch (backend) {
+        case "vertex-failover":
+            return "vertex (failover)";
+        case "vertex":
+        case "litellm":
+            return backend;
+        default:
+            return null;
+    }
 }
 
 export function TranscriptionSection({
@@ -29,12 +43,14 @@ export function TranscriptionSection({
     initialTranscription,
     initialLanguage,
     initialType,
+    initialBackend,
     duration,
     plaudFileId,
 }: TranscriptionSectionProps) {
     const [transcription, setTranscription] = useState(initialTranscription);
     const [detectedLanguage, setDetectedLanguage] = useState(initialLanguage);
     const [transcriptionType, setTranscriptionType] = useState(initialType);
+    const [backend, setBackend] = useState(initialBackend);
     const [isProcessing, setIsProcessing] = useState(false);
     const [isPullingPlaud, setIsPullingPlaud] = useState(false);
     const [progress, setProgress] = useState(0);
@@ -145,10 +161,16 @@ export function TranscriptionSection({
                             setTranscription(event.result.transcription);
                             setDetectedLanguage(event.result.detectedLanguage);
                             setTranscriptionType("server");
+                            setBackend(event.result.backend ?? null);
                             toast.success("Transcription complete");
                             if (event.result.compressionWarning) {
                                 toast.warning(event.result.compressionWarning, {
                                     duration: 10000,
+                                });
+                            }
+                            if (event.result.failoverNotice) {
+                                toast.warning(event.result.failoverNotice, {
+                                    duration: 12000,
                                 });
                             }
                         }
@@ -190,6 +212,22 @@ export function TranscriptionSection({
                         {transcriptionType && (
                             <span className="text-label text-xs px-3 py-1.5 rounded-lg bg-panel-inset border border-panel-border">
                                 {transcriptionType}
+                            </span>
+                        )}
+                        {backendLabel(backend) && (
+                            <span
+                                title={
+                                    backend === "vertex-failover"
+                                        ? "The configured LiteLLM proxy was unavailable, so Vertex AI transcribed this recording."
+                                        : "Backend that produced this transcript."
+                                }
+                                className={`text-label text-xs px-3 py-1.5 rounded-lg bg-panel-inset border ${
+                                    backend === "vertex-failover"
+                                        ? "border-accent-orange text-accent-orange"
+                                        : "border-panel-border"
+                                }`}
+                            >
+                                {backendLabel(backend)}
                             </span>
                         )}
                     </div>
