@@ -6,6 +6,7 @@
 - [Removed]: `scripts/run-diarize.py`, `src/lib/transcription/diarize.ts`, and the time-overlap speaker-linking helpers — centroids are now born keyed to the final transcript label, so there is nothing to reconcile (josh, 2026-09-21)
 - [Added]: Warning toast when speaker fingerprinting is skipped or fails, replacing the silent fallback; transcripts are unaffected but no voiceprints are saved (josh, 2026-09-21)
 - [Added]: Provider-level tests for the fingerprinting path (sampling, merge, notices) plus unit tests for window selection and label merging (josh, 2026-09-21)
+- [Added]: Documented `DIARIZE_OMP_THREADS` / `DIARIZE_ONNX_THREADS` in `.env.example` (josh, 2026-09-21)
 - [Added]: `docs/SPEAKER_FINGERPRINTING.md` and `docs/overview.md` doc index; updated `docs/TRANSCRIPTION_BACKENDS.md` and `docs/FORK_STATE.md` for the new pipeline (josh, 2026-09-21)
 - [Added]: Automatic LiteLLM to Vertex AI transcription failover with a per-failure-kind cooldown (budget 30 min, rate limit 5 min, server 2 min), so a capped or throttled proxy no longer fails a transcription (josh, 2026-09-21)
 - [Added]: `transcriptions.transcription_backend` column (migration 0020) plus a backend badge and warning toast in the UI, recording whether a transcript came from litellm, vertex, or a vertex failover (josh, 2026-09-21)
