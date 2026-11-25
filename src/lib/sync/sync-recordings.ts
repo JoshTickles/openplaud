@@ -261,6 +261,10 @@ export async function syncRecordingsForUser(
         let page = 0;
         let hasMore = true;
         let consecutiveEmptyPages = 0;
+        // True only when pagination ran to the end of the upstream listing
+        // (a short final page). Early exit on idle pages stops before that,
+        // so the seen set is partial and must not drive deletion flagging.
+        let sawFullListing = false;
 
         console.log(`[Sync] Starting sync for user ${userId}`);
 
@@ -280,6 +284,7 @@ export async function syncRecordingsForUser(
             );
 
             if (plaudRecordings.length === 0) {
+                sawFullListing = true;
                 break;
             }
 
@@ -316,6 +321,9 @@ export async function syncRecordingsForUser(
             // Early exit optimization: if we got fewer recordings than requested,
             // or if we had no new/updated recordings for 2 pages, we're done
             if (plaudRecordings.length < SYNC_CONFIG.PAGE_SIZE) {
+                // A short page is the end of the listing: everything still
+                // missing upstream is genuinely gone.
+                sawFullListing = true;
                 hasMore = false;
             } else if (
                 result.newRecordings === 0 &&
@@ -332,8 +340,25 @@ export async function syncRecordingsForUser(
             page++;
         }
 
+        // Deletion flagging needs the complete upstream listing. Early exit
+        // stops after two idle pages, leaving a partial seen set; flagging
+        // against it would mark every older recording "Local only".
+        // For v4 accounts the full listing is already cached client-side, so
+        // complete the seen set with no extra downloads and flag normally.
+        // For legacy accounts, only flag when pagination ran to the end.
+        if (!sawFullListing && plaudClient.usingPlaudV4) {
+            const remaining = await plaudClient.getRecordings(
+                0,
+                Number.MAX_SAFE_INTEGER,
+            );
+            for (const rec of remaining.data_file_list) {
+                seenPlaudFileIds.add(rec.id);
+            }
+            sawFullListing = true;
+        }
+
         // Flag local recordings as "upstream deleted" if they no longer exist on Plaud
-        if (seenPlaudFileIds.size > 0) {
+        if (sawFullListing && seenPlaudFileIds.size > 0) {
             try {
                 const plaudIds = Array.from(seenPlaudFileIds);
 

@@ -112,6 +112,11 @@ export class PlaudClient {
         this.apiBase = apiBase;
     }
 
+    /** True once the client has switched to the Plaud 4.0 file API. */
+    get usingPlaudV4(): boolean {
+        return this.v4Mode;
+    }
+
     /**
      * Make authenticated request to Plaud API with retry logic
      */

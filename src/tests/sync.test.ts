@@ -295,4 +295,139 @@ describe("Sync", () => {
             expect(result.errors.length).toBeGreaterThan(0);
         });
     });
+
+    describe("upstream deletion flagging", () => {
+        const page = (ids: string[]) => ({
+            data_file_list: ids.map((id, i) => ({
+                id,
+                filename: `${id}.mp3`,
+                duration: 60000,
+                start_time: 1000 + i,
+                end_time: 61000 + i,
+                filesize: 1024,
+                file_md5: "md5",
+                serial_number: "SN",
+                version_ms: 1,
+                timezone: 0,
+                zonemins: 0,
+                scene: 0,
+                is_trash: false,
+            })),
+        });
+
+        // Full-page recordings every time, all already synced (skip path),
+        // so pagination stops on the two-idle-page early exit rather than
+        // at a short final page.
+        function setupIdleSync(pageCount: number) {
+            const pageSize = 50;
+            const mockConnection = {
+                id: "conn-1",
+                userId: mockUserId,
+                bearerToken: "encrypted-token",
+            };
+
+            const client = {
+                getRecordings: vi.fn(),
+                hydrateRecording: vi
+                    .fn()
+                    .mockImplementation(async (r: unknown) => r),
+                downloadRecording: vi
+                    .fn()
+                    .mockResolvedValue(Buffer.from("audio")),
+                usingPlaudV4: false,
+            };
+
+            for (let p = 0; p < pageCount; p++) {
+                const ids = Array.from(
+                    { length: pageSize },
+                    (_, i) => `plaud-p${p}-${i}`,
+                );
+                client.getRecordings.mockResolvedValueOnce(page(ids));
+            }
+
+            (createPlaudClient as Mock).mockResolvedValue(client);
+
+            const selectFor = (rows: unknown[]) => ({
+                from: vi.fn().mockReturnValue({
+                    where: vi.fn().mockReturnValue({
+                        limit: vi.fn().mockResolvedValue(rows),
+                    }),
+                }),
+            });
+            // connection, settings, user, then one existing (up-to-date)
+            // recording lookup per processed recording.
+            (db.select as Mock).mockReturnValueOnce(selectFor([mockConnection]));
+            (db.select as Mock).mockReturnValueOnce(
+                selectFor([{ id: "settings-1" }]),
+            );
+            (db.select as Mock).mockReturnValueOnce(
+                selectFor([{ email: "test@example.com" }]),
+            );
+            (db.select as Mock).mockImplementation(() => ({
+                from: vi.fn().mockReturnValue({
+                    where: vi.fn().mockReturnValue({
+                        limit: vi.fn().mockResolvedValue([
+                            {
+                                id: "local",
+                                plaudVersion: "1",
+                            },
+                        ]),
+                    }),
+                }),
+            }));
+
+            const updateWhere = vi.fn().mockResolvedValue(undefined);
+            const updateSet = vi
+                .fn()
+                .mockReturnValue({ where: updateWhere });
+            (db.update as Mock).mockReturnValue({ set: updateSet });
+
+            return { client, updateSet, updateWhere };
+        }
+
+        it("does not flag upstream-deleted after an early-exit partial listing", async () => {
+            const { client, updateSet } = setupIdleSync(3);
+
+            const result = await syncRecordingsForUser(mockUserId);
+
+            // Early exit after two idle pages; listing was never exhausted.
+            expect(result.removedRecordings).toBe(0);
+            expect(client.getRecordings.mock.calls.length).toBeLessThan(3);
+            // The only update is lastSync; nothing sets upstreamDeleted.
+            const flagged = updateSet.mock.calls.some(
+                ([patch]) => "upstreamDeleted" in patch,
+            );
+            expect(flagged).toBe(false);
+        });
+
+        it("completes the seen set from the cached v4 listing and flags", async () => {
+            // Two queued idle pages: the loop early-exits, the third queued
+            // mock is the completion call.
+            const { client } = setupIdleSync(2);
+            client.usingPlaudV4 = true;
+            // The completion call returns the full listing (cache hit).
+            const allIds = Array.from(
+                { length: 230 },
+                (_, i) => `plaud-p${Math.floor(i / 50)}-${i % 50}`,
+            );
+            client.getRecordings.mockResolvedValueOnce(page(allIds));
+            const updateSet = vi.fn();
+            const updateWhere = vi
+                .fn()
+                .mockReturnValue({ returning: vi.fn().mockResolvedValue([]) });
+            updateSet.mockReturnValue({ where: updateWhere });
+            (db.update as Mock).mockReturnValue({ set: updateSet });
+
+            const result = await syncRecordingsForUser(mockUserId);
+
+            // Full set seen: deletion flagging is allowed to run.
+            const completionCall = client.getRecordings.mock.calls.at(-1);
+            expect(completionCall?.[0]).toBe(0);
+            const flagCalls = updateSet.mock.calls.filter(
+                ([patch]) => patch.upstreamDeleted === true,
+            );
+            expect(flagCalls.length).toBe(1);
+            expect(result.removedRecordings).toBe(0);
+        });
+    });
 });

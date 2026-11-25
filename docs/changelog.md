@@ -1,6 +1,7 @@
 # Changelog
 
 - [Fixed]: Plaud accounts migrated to Plaud 4.0 sync again — the legacy `/file/...` API now replies "Account migrated to 4.0" (status -1800907) with no recordings, and sync silently imported nothing; the client detects the migration and serves listings, downloads, renames, and transcripts from the `/file-app/v4/` API, matching pre-migration rows by their stripped `of_` file-id prefix so nothing re-downloads (port of upstream #328) (josh, 2026-11-26)
+- [Fixed]: Sync no longer flags older recordings "Local only" after its early-exit optimization stops pagination on idle pages — deletion flagging now runs only against a complete upstream listing (for v4 accounts the full listing is already cached client-side) (josh, 2026-11-26)
 - [Changed]: Synced audio is stored under its sniffed container extension — Plaud names files .mp3 even when they are Ogg/Opus, which broke playback content-type and some providers (josh, 2026-11-26)
 
 - [Fixed]: Speaker labels from the transcription model are now authoritative and never rewritten. The similarity merge folded two real people together on a 4-speaker recording, and a wrong merge is unrecoverable while an over-split costs one rename, so it has been removed (josh, 2026-09-21)
