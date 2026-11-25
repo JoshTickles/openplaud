@@ -29,7 +29,11 @@ export async function POST(request: Request) {
             );
         }
 
-        const { bearerToken, server: serverKey } = await request.json();
+        const {
+            bearerToken,
+            refreshToken,
+            server: serverKey,
+        } = await request.json();
 
         if (!bearerToken) {
             return NextResponse.json(
@@ -46,6 +50,46 @@ export async function POST(request: Request) {
             );
         }
 
+        // A pasted workspace token validates against /device/list but cannot
+        // be refreshed: the connection dies within a day. Reject it with
+        // actionable copy instead.
+        if (isPlaudWorkspaceToken(bearerToken)) {
+            return NextResponse.json(
+                {
+                    error: "That's a workspace token, which stops working within a day and can't be renewed. Copy the pld_ut cookie from web.plaud.ai (DevTools → Application → Cookies) instead, plus pld_urt for auto-renewal.",
+                },
+                { status: 400 },
+            );
+        }
+
+        // Only accept a JWT-shaped refresh token; never store workspace
+        // tokens (signed with the same alg) under it. Expiry is enforced once
+        // via sessionExpiresAt below.
+        let sanitizedRefreshToken: string | null = null;
+        const looksLikeJwt =
+            typeof refreshToken === "string" &&
+            refreshToken.split(".").length === 3 &&
+            refreshToken.length < 4096;
+        if (
+            looksLikeJwt &&
+            refreshToken !== bearerToken &&
+            !isPlaudWorkspaceToken(refreshToken) &&
+            decodeJwtClaims(refreshToken)
+        ) {
+            sanitizedRefreshToken = refreshToken;
+        }
+        if (
+            refreshToken !== undefined &&
+            refreshToken !== null &&
+            refreshToken !== "" &&
+            !sanitizedRefreshToken
+        ) {
+            return NextResponse.json(
+                { error: "Refresh token must be a Plaud pld_urt token" },
+                { status: 400 },
+            );
+        }
+
         const apiBase = PLAUD_SERVERS[resolvedKey as PlaudServerKey].apiBase;
         const client = new PlaudClient(bearerToken, apiBase);
         const isValid = await client.testConnection();
@@ -58,6 +102,19 @@ export async function POST(request: Request) {
         }
 
         const deviceList = await client.listDevices();
+
+        const tokens = buildPlaudTokenSet({
+            accessToken: bearerToken,
+            refreshToken: sanitizedRefreshToken,
+        });
+        if (tokens.sessionExpiresAt && tokens.sessionExpiresAt <= new Date()) {
+            return NextResponse.json(
+                {
+                    error: "This Plaud sign-in has already ended. Paste fresh tokens.",
+                },
+                { status: 400 },
+            );
+        }
 
         const encryptedToken = encrypt(bearerToken);
         const encryptedRefreshToken = tokens.refreshToken

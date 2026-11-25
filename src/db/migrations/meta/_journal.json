@@ -148,6 +148,13 @@
       "when": 1789959600000,
       "tag": "0020_transcription_backend",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1795700000000,
+      "tag": "0021_plaud_refresh_token",
+      "breakpoints": true
     }
   ]
 }

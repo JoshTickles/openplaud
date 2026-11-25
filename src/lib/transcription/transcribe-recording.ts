@@ -139,7 +139,12 @@ export async function transcribeRecording(
         const storage = await createUserStorageProvider(userId);
         const audioBuffer = await storage.downloadFile(recording.storagePath);
 
-        if (speakerDiarization && providerType === "google") {
+        if (
+            speakerDiarization &&
+            (providerType === "google" ||
+                providerType === "litellm" ||
+                providerType === "local")
+        ) {
             const { writeFile } = await import("node:fs/promises");
             const { tmpdir } = await import("node:os");
             const { join } = await import("node:path");
@@ -309,10 +314,7 @@ export async function transcribeRecording(
                                 .limit(1);
 
                             if (connection) {
-                                const plaudClient = await createPlaudClient(
-                                    connection.bearerToken,
-                                    connection.apiBase,
-                                );
+                                const plaudClient = await createPlaudClient(connection);
                                 await plaudClient.updateFilename(
                                     recording.plaudFileId,
                                     generatedTitle,

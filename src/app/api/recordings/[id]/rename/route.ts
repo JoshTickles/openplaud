@@ -66,10 +66,7 @@ export async function PATCH(
                     .limit(1);
 
                 if (connection) {
-                    const plaudClient = await createPlaudClient(
-                        connection.bearerToken,
-                        connection.apiBase,
-                    );
+                    const plaudClient = await createPlaudClient(connection);
                     await plaudClient.updateFilename(recording.plaudFileId, cleanFilename);
                 }
             } catch (syncError) {

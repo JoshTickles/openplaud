@@ -67,10 +67,7 @@ export async function POST(
             );
         }
 
-        const plaudClient = await createPlaudClient(
-            connection.bearerToken,
-            connection.apiBase,
-        );
+        const plaudClient = await createPlaudClient(connection);
 
         const plaudText = await plaudClient.fetchTranscript(recording.plaudFileId);
 
@@ -102,6 +99,11 @@ export async function POST(
                     transcriptionType: "server",
                     provider: "plaud",
                     model: "plaud-cloud",
+                    // These describe the old text/backend, not this Plaud import.
+                    transcriptionBackend: null,
+                    speakerMap: null,
+                    speakerCentroids: null,
+                    speakerSegments: null,
                 })
                 .where(eq(transcriptions.id, existing.id));
         } else {

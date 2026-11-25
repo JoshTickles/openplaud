@@ -108,7 +108,11 @@ export function OnboardingDialog({
             const response = await fetch("/api/plaud/connect", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ bearerToken, server }),
+                body: JSON.stringify({
+                    bearerToken: bearerToken.trim().replace(/^Bearer\s+/i, ""),
+                    refreshToken: refreshToken.trim() || undefined,
+                    server,
+                }),
             });
 
             if (!response.ok) {
@@ -382,12 +386,16 @@ export function OnboardingDialog({
                                                 disabled={isLoading}
                                             />
                                             <p className="text-xs text-muted-foreground">
-                                                Open plaud.ai in a browser, log
-                                                in, open DevTools (F12) →
-                                                Network tab, refresh and copy
-                                                the Authorization header value
-                                                from any request to the Plaud
-                                                API server.
+                                                Open web.plaud.ai in a browser,
+                                                log in, open DevTools (F12) →
+                                                Application → Cookies and copy
+                                                the value of the pld_ut cookie.
+                                                Also paste the pld_urt cookie
+                                                below so the connection renews
+                                                itself; do not use the
+                                                Authorization header from a
+                                                network request, it stops
+                                                working within a day.
                                             </p>
                                         </div>
 

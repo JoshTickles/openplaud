@@ -56,8 +56,13 @@ export function OnboardingForm() {
 
             toast.success("Plaud device connected");
             setStep("complete");
-        } catch {
-            toast.error("Failed to connect to Plaud");
+        } catch (error) {
+            toast.error(
+                error instanceof Error
+                    ? error.message
+                    : "Failed to connect to Plaud",
+                { duration: 10000 },
+            );
         } finally {
             setIsLoading(false);
         }
@@ -100,6 +105,15 @@ export function OnboardingForm() {
                             <li>
                                 Open DevTools (F12) → Application (or Storage) →
                                 Cookies
+                            </li>
+                            <li>
+                                Copy the value of the <code>pld_ut</code> cookie
+                                into Bearer Token
+                            </li>
+                            <li>
+                                Copy the value of the <code>pld_urt</code>{" "}
+                                cookie into Refresh Token, so the connection
+                                renews itself
                             </li>
                         </ol>
                         <p className="text-muted-foreground">

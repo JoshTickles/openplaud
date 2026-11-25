@@ -15,10 +15,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useSettings } from "@/hooks/use-settings";
-import {
-    PLAUD_SERVERS,
-    type PlaudServerKey,
-} from "@/lib/plaud/servers";
+import { PLAUD_SERVERS, type PlaudServerKey } from "@/lib/plaud/servers";
 
 const syncIntervalPresets = [
     { label: "1 minute", value: 60 * 1000 },
@@ -263,7 +260,9 @@ export function SyncSection() {
                             </Select>
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="reconnect-token">Bearer Token</Label>
+                            <Label htmlFor="reconnect-token">
+                                Bearer Token
+                            </Label>
                             <Input
                                 id="reconnect-token"
                                 type="text"

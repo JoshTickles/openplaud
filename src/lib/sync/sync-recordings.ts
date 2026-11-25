@@ -249,10 +249,7 @@ export async function syncRecordingsForUser(
             barkPushUrl: settings?.barkPushUrl || null,
         };
 
-        const plaudClient = await createPlaudClient(
-            connection.bearerToken,
-            connection.apiBase,
-        );
+        const plaudClient = await createPlaudClient(connection);
         const storage = await createUserStorageProvider(userId);
         const allNewRecordingNames: string[] = [];
         const seenPlaudFileIds = new Set<string>();

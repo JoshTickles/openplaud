@@ -15,6 +15,7 @@ import type {
     PlaudV4RenameResponse,
 } from "@/types/plaud";
 import { parseTranscript } from "./content";
+import { DEFAULT_SERVER_KEY, PLAUD_SERVERS, PLAUD_USER_AGENT } from "./servers";
 import {
     applyPlaudV4Detail,
     isPlaudV4MigratedResponse,
@@ -183,7 +184,12 @@ export class PlaudClient {
                     ? Number.parseInt(retryAfter, 10) * 1000
                     : INITIAL_RETRY_DELAY * 2 ** retryCount; // Exponential backoff
                 await sleep(delay);
-                return this.request<T>(endpoint, options, retryCount + 1);
+                return this.request<T>(
+                    endpoint,
+                    options,
+                    retryCount + 1,
+                    token,
+                );
             }
 
             // A rejected user token usually means the 24-hour web sign-in
@@ -826,8 +832,90 @@ export async function createPlaudClient(
     connection: PlaudConnectionCredentials,
 ): Promise<PlaudClient> {
     const { decrypt } = await import("../encryption");
-    const bearerToken = decrypt(encryptedToken);
-    return new PlaudClient(bearerToken, apiBase);
+    const accessToken = decrypt(connection.bearerToken);
+    const storedRefreshToken = connection.refreshToken;
+    const refreshToken = storedRefreshToken
+        ? decrypt(storedRefreshToken)
+        : null;
+
+    let accessExpiresAt = connection.accessExpiresAt ?? null;
+    if (!accessExpiresAt) {
+        // Backfill from the stored JWT so the expiry window works for
+        // connections created before the columns existed.
+        const { decodeAccessTokenExpiry } = await import("./auth");
+        accessExpiresAt = decodeAccessTokenExpiry(accessToken);
+    }
+
+    if (!refreshToken || !storedRefreshToken) {
+        return new PlaudClient(accessToken, connection.apiBase);
+    }
+
+    let currentRefreshToken = refreshToken;
+    const currentStoredRefreshToken = storedRefreshToken;
+    let refreshing: Promise<string> | undefined;
+
+    const refreshOnce = (): Promise<string> => {
+        if (refreshing) return refreshing;
+        const attempt = (async () => {
+            const { plaudRefreshUserToken, PlaudRefreshRejectedError } =
+                await import("./auth");
+            if (
+                connection.sessionExpiresAt &&
+                connection.sessionExpiresAt.getTime() <= Date.now()
+            ) {
+                throw new PlaudRefreshRejectedError(
+                    "Your Plaud sign-in has ended. Reconnect your Plaud account.",
+                );
+            }
+            const tokens = await plaudRefreshUserToken(
+                currentRefreshToken,
+                connection.apiBase,
+            );
+            const newRefresh = tokens.refreshToken ?? currentRefreshToken;
+            await persistRefreshedPlaudTokens({
+                userId: connection.userId,
+                connectionId: connection.id,
+                storedRefreshToken: currentStoredRefreshToken,
+                accessToken: tokens.accessToken,
+                refreshToken: newRefresh,
+                accessExpiresAt: tokens.accessExpiresAt,
+                sessionExpiresAt: tokens.sessionExpiresAt,
+            });
+            currentRefreshToken = newRefresh;
+            accessExpiresAt = tokens.accessExpiresAt;
+            return tokens.accessToken;
+        })();
+        refreshing = attempt;
+        attempt.then(
+            () => {
+                if (refreshing === attempt) refreshing = undefined;
+            },
+            () => {
+                if (refreshing === attempt) refreshing = undefined;
+            },
+        );
+        return attempt;
+    };
+
+    let userToken = accessToken;
+    if (shouldRefreshPlaudAccessToken(accessExpiresAt)) {
+        try {
+            userToken = await refreshOnce();
+        } catch (err) {
+            const stillValid =
+                accessExpiresAt !== null &&
+                accessExpiresAt.getTime() > Date.now();
+            if (!stillValid) throw err;
+            console.warn(
+                "[plaud] token refresh failed, using the current token until it expires:",
+                err instanceof Error ? err.message : err,
+            );
+        }
+    }
+
+    return new PlaudClient(userToken, connection.apiBase, {
+        refreshUserToken: refreshOnce,
+    });
 }
 
 export * from "./types";
