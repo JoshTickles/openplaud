@@ -14,6 +14,28 @@ export interface GeminiTurn {
 }
 
 /**
+ * Distinct "Speaker N" labels in transcript order. Labels may sit at line
+ * start (Plaud cloud transcripts) or behind a `[m:ss]` timestamp (model
+ * transcripts) — both shapes belong to the same speaker. Quoted text inside
+ * a turn ("He said \"Speaker 3: ...\" once") is not line-initial or
+ * timestamp-preceded, so it is not picked up.
+ */
+export function transcriptSpeakerLabels(text: string): string[] {
+    const re = /(?:^|\]\s*)\b(Speaker\s+\d+)\s*:/gim;
+    const seen = new Set<string>();
+    const labels: string[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null) {
+        const label = m[1].replace(/\s+/g, " ");
+        if (!seen.has(label)) {
+            seen.add(label);
+            labels.push(label);
+        }
+    }
+    return labels;
+}
+
+/**
  * Parse `[m:ss] Speaker N: text` (or `[h:mm:ss]`) lines into turns with a
  * time range. Each turn runs from its timestamp to the next turn's timestamp;
  * the final turn runs to `audioDuration` (or its own start if unknown).

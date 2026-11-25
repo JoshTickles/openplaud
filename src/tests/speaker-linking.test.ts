@@ -2,7 +2,50 @@ import { describe, expect, it } from "vitest";
 import {
     parseTimestampedTurns,
     stripTimestamps,
+    transcriptSpeakerLabels,
 } from "@/lib/transcription/speaker-linking";
+
+describe("transcriptSpeakerLabels", () => {
+    it("finds labels behind [m:ss] timestamps (model transcripts)", () => {
+        const text = [
+            "[0:02] Speaker 1: Hello, Josh speaking.",
+            "[0:04] Speaker 2: Hey Josh.",
+            "[11:58] Speaker 1: Bye.",
+        ].join("\n");
+        expect(transcriptSpeakerLabels(text)).toEqual([
+            "Speaker 1",
+            "Speaker 2",
+        ]);
+    });
+
+    it("finds bare line-initial labels (Plaud cloud transcripts)", () => {
+        const text =
+            "Speaker 1: Hello Josh.\n\nSpeaker 2: Hi guys.\n\nSpeaker 1: Busy week.";
+        expect(transcriptSpeakerLabels(text)).toEqual([
+            "Speaker 1",
+            "Speaker 2",
+        ]);
+    });
+
+    it("handles double-digit speakers and extra spaces", () => {
+        expect(transcriptSpeakerLabels("[2:00] Speaker  10: hi")).toEqual([
+            "Speaker 10",
+        ]);
+    });
+
+    it("ignores quoted speech that merely mentions a label", () => {
+        const text =
+            '[0:10] Speaker 1: He said "Speaker 3: liar" once.\n[0:12] Speaker 2: Lol.';
+        expect(transcriptSpeakerLabels(text)).toEqual([
+            "Speaker 1",
+            "Speaker 2",
+        ]);
+    });
+
+    it("returns nothing for transcripts without speaker lines", () => {
+        expect(transcriptSpeakerLabels("just prose, no labels")).toEqual([]);
+    });
+});
 
 describe("parseTimestampedTurns", () => {
     const text = [
@@ -33,13 +76,17 @@ describe("parseTimestampedTurns", () => {
     });
 
     it("returns [] when there are no timestamped turns", () => {
-        expect(parseTimestampedTurns("Speaker 1: no timestamp here")).toEqual([]);
+        expect(parseTimestampedTurns("Speaker 1: no timestamp here")).toEqual(
+            [],
+        );
     });
 });
 
 describe("stripTimestamps", () => {
     it("removes [m:ss] and [h:mm:ss] prefixes, keeps the rest", () => {
         const input = "[0:05] Speaker 1: Hello.\n[1:02:03] Speaker 2: Hi.";
-        expect(stripTimestamps(input)).toBe("Speaker 1: Hello.\nSpeaker 2: Hi.");
+        expect(stripTimestamps(input)).toBe(
+            "Speaker 1: Hello.\nSpeaker 2: Hi.",
+        );
     });
 });

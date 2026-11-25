@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { transcriptSpeakerLabels } from "@/lib/transcription/speaker-linking";
 import { suggestNames } from "@/lib/voiceprints/names";
 
 interface SpeakerLabelEditorProps {
@@ -15,24 +16,27 @@ interface SpeakerLabelEditorProps {
 }
 
 const SPEAKER_COLORS = [
-    "#3b82f6", "#ef4444", "#22c55e", "#f59e0b", "#8b5cf6",
-    "#ec4899", "#06b6d4", "#f97316", "#14b8a6", "#a855f7",
+    "#3b82f6",
+    "#ef4444",
+    "#22c55e",
+    "#f59e0b",
+    "#8b5cf6",
+    "#ec4899",
+    "#06b6d4",
+    "#f97316",
+    "#14b8a6",
+    "#a855f7",
 ];
 
 function extractSpeakers(text: string): string[] {
     const seen = new Set<string>();
     const speakers: string[] = [];
-    const regex = /^(Speaker\s+\d+):/gim;
-    let match: RegExpExecArray | null;
-
-    while ((match = regex.exec(text)) !== null) {
-        const normalized = match[1].replace(/\s+/g, " ");
-        if (!seen.has(normalized)) {
-            seen.add(normalized);
-            speakers.push(normalized);
+    for (const label of transcriptSpeakerLabels(text)) {
+        if (!seen.has(label)) {
+            seen.add(label);
+            speakers.push(label);
         }
     }
-
     return speakers;
 }
 
@@ -78,8 +82,10 @@ export function SpeakerLabelEditor({
                 // pre-pass was removed are keyed "SPEAKER_NN" (N = NN+1)
                 // instead, so accept both rather than dropping the ones that
                 // do not match the older shape.
-                const raw: Record<string, { name: string; similarity: number }> =
-                    data.suggestions ?? {};
+                const raw: Record<
+                    string,
+                    { name: string; similarity: number }
+                > = data.suggestions ?? {};
                 const mapped: typeof raw = {};
                 for (const [label, s] of Object.entries(raw)) {
                     const legacy = label.match(/^SPEAKER_(\d+)$/i);
@@ -109,7 +115,9 @@ export function SpeakerLabelEditor({
     }, [localMap, speakerMap, speakers]);
 
     const mappedCount = useMemo(
-        () => speakers.filter((s) => (localMap[s] ?? "").trim().length > 0).length,
+        () =>
+            speakers.filter((s) => (localMap[s] ?? "").trim().length > 0)
+                .length,
         [speakers, localMap],
     );
 
@@ -139,7 +147,9 @@ export function SpeakerLabelEditor({
             toast.success("Speaker names saved");
         } catch (error) {
             toast.error(
-                error instanceof Error ? error.message : "Failed to save speaker names",
+                error instanceof Error
+                    ? error.message
+                    : "Failed to save speaker names",
             );
         } finally {
             setIsSaving(false);
@@ -157,7 +167,8 @@ export function SpeakerLabelEditor({
             >
                 <Users className="w-4 h-4" />
                 <span>
-                    {speakers.length} speaker{speakers.length !== 1 ? "s" : ""} detected
+                    {speakers.length} speaker{speakers.length !== 1 ? "s" : ""}{" "}
+                    detected
                     {mappedCount > 0 && ` (${mappedCount} named)`}
                 </span>
                 <span className="text-xs">{isExpanded ? "▲" : "▼"}</span>
@@ -169,60 +180,77 @@ export function SpeakerLabelEditor({
                         const suggestion = suggestions[speaker];
                         const isUnnamed = !(localMap[speaker] ?? "").trim();
                         return (
-                        <div key={speaker} className="flex items-center gap-2">
-                            <span
-                                className="w-3 h-3 rounded-full shrink-0"
-                                style={{ backgroundColor: SPEAKER_COLORS[idx % SPEAKER_COLORS.length] }}
-                            />
-                            <span className="text-xs text-muted-foreground w-24 shrink-0">
-                                {speaker}
-                            </span>
-                            <span className="text-xs text-muted-foreground">→</span>
-                            <Input
-                                value={localMap[speaker] ?? ""}
-                                onChange={(e) =>
-                                    setLocalMap((prev) => ({
-                                        ...prev,
-                                        [speaker]: e.target.value,
-                                    }))
-                                }
-                                placeholder={
-                                    suggestion
-                                        ? `${suggestion.name}?`
-                                        : "Enter real name..."
-                                }
-                                className="h-7 text-xs flex-1"
-                                maxLength={100}
-                                list={`voiceprint-names-${recordingId}`}
-                                autoComplete="off"
-                                onKeyDown={(e) => {
-                                    if (e.key === "Enter" && hasChanges) handleSave();
-                                }}
-                            />
-                            <datalist id={`voiceprint-names-${recordingId}`}>
-                                {suggestNames(
-                                    localMap[speaker] ?? "",
-                                    knownNames,
-                                ).map((n) => (
-                                    <option key={n} value={n} />
-                                ))}
-                            </datalist>
-                            {suggestion && isUnnamed && (
-                                <button
-                                    type="button"
-                                    onClick={() =>
+                            <div
+                                key={speaker}
+                                className="flex items-center gap-2"
+                            >
+                                <span
+                                    className="w-3 h-3 rounded-full shrink-0"
+                                    style={{
+                                        backgroundColor:
+                                            SPEAKER_COLORS[
+                                                idx % SPEAKER_COLORS.length
+                                            ],
+                                    }}
+                                />
+                                <span className="text-xs text-muted-foreground w-24 shrink-0">
+                                    {speaker}
+                                </span>
+                                <span className="text-xs text-muted-foreground">
+                                    →
+                                </span>
+                                <Input
+                                    value={localMap[speaker] ?? ""}
+                                    onChange={(e) =>
                                         setLocalMap((prev) => ({
                                             ...prev,
-                                            [speaker]: suggestion.name,
+                                            [speaker]: e.target.value,
                                         }))
                                     }
-                                    className="text-xs px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
-                                    title={`Matched ${Math.round(suggestion.similarity * 100)}% from a previous recording`}
+                                    placeholder={
+                                        suggestion
+                                            ? `${suggestion.name}?`
+                                            : "Enter real name..."
+                                    }
+                                    className="h-7 text-xs flex-1"
+                                    maxLength={100}
+                                    list={`voiceprint-names-${recordingId}`}
+                                    autoComplete="off"
+                                    onKeyDown={(e) => {
+                                        if (e.key === "Enter" && hasChanges)
+                                            handleSave();
+                                    }}
+                                />
+                                <datalist
+                                    id={`voiceprint-names-${recordingId}`}
                                 >
-                                    {suggestion.name} · {Math.round(suggestion.similarity * 100)}%
-                                </button>
-                            )}
-                        </div>
+                                    {suggestNames(
+                                        localMap[speaker] ?? "",
+                                        knownNames,
+                                    ).map((n) => (
+                                        <option key={n} value={n} />
+                                    ))}
+                                </datalist>
+                                {suggestion && isUnnamed && (
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            setLocalMap((prev) => ({
+                                                ...prev,
+                                                [speaker]: suggestion.name,
+                                            }))
+                                        }
+                                        className="text-xs px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+                                        title={`Matched ${Math.round(suggestion.similarity * 100)}% from a previous recording`}
+                                    >
+                                        {suggestion.name} ·{" "}
+                                        {Math.round(
+                                            suggestion.similarity * 100,
+                                        )}
+                                        %
+                                    </button>
+                                )}
+                            </div>
                         );
                     })}
                     {hasChanges && (
