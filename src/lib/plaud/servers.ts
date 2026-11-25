@@ -20,3 +20,6 @@ export const PLAUD_SERVERS = {
 
 export type PlaudServerKey = keyof typeof PLAUD_SERVERS;
 export const DEFAULT_SERVER_KEY: PlaudServerKey = "global";
+
+export const PLAUD_USER_AGENT =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";

@@ -77,6 +77,15 @@ export const plaudConnections = pgTable("plaud_connections", {
         .references(() => users.id, { onDelete: "cascade" }),
     // Encrypted bearer token
     bearerToken: text("bearer_token").notNull(),
+    // Encrypted Plaud refresh token (pld_urt). Plaud web sign-ins are short
+    // lived (24h access token, 30-day sign-in); the refresh token renews the
+    // access token until the sign-in ends. Null for connections made before
+    // support, or without one pasted.
+    refreshToken: text("refresh_token"),
+    // When the stored access token expires (from its JWT `exp`)
+    accessExpiresAt: timestamp("access_expires_at"),
+    // When the sign-in ends for good: refreshing never extends past it
+    sessionExpiresAt: timestamp("session_expires_at"),
     // Regional API server base URL (e.g. https://api-euc1.plaud.ai for EU users)
     apiBase: text("api_base").notNull().default("https://api.plaud.ai"),
     lastSync: timestamp("last_sync"),

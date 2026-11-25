@@ -51,6 +51,7 @@ export function OnboardingDialog({
     const router = useRouter();
     const [step, setStep] = useState<OnboardingStep>("welcome");
     const [bearerToken, setBearerToken] = useState("");
+    const [refreshToken, setRefreshToken] = useState("");
     const [server, setServer] = useState<PlaudServerKey>(DEFAULT_SERVER_KEY);
     const [isLoading, setIsLoading] = useState(false);
     const [hasPlaudConnection, setHasPlaudConnection] = useState(false);

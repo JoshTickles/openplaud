@@ -4,6 +4,11 @@ import { db } from "@/db";
 import { plaudConnections, plaudDevices } from "@/db/schema";
 import { auth } from "@/lib/auth";
 import { encrypt } from "@/lib/encryption";
+import {
+    buildPlaudTokenSet,
+    decodeJwtClaims,
+    isPlaudWorkspaceToken,
+} from "@/lib/plaud/auth";
 import { PlaudClient } from "@/lib/plaud/client";
 import {
     DEFAULT_SERVER_KEY,
@@ -55,6 +60,17 @@ export async function POST(request: Request) {
         const deviceList = await client.listDevices();
 
         const encryptedToken = encrypt(bearerToken);
+        const encryptedRefreshToken = tokens.refreshToken
+            ? encrypt(tokens.refreshToken)
+            : null;
+
+        const connectionValues = {
+            bearerToken: encryptedToken,
+            refreshToken: encryptedRefreshToken,
+            accessExpiresAt: tokens.accessExpiresAt,
+            sessionExpiresAt: tokens.sessionExpiresAt,
+            apiBase,
+        };
 
         const [existingConnection] = await db
             .select()
@@ -65,18 +81,12 @@ export async function POST(request: Request) {
         if (existingConnection) {
             await db
                 .update(plaudConnections)
-                .set({
-                    bearerToken: encryptedToken,
-                    apiBase,
-                    updatedAt: new Date(),
-                })
+                .set({ ...connectionValues, updatedAt: new Date() })
                 .where(eq(plaudConnections.id, existingConnection.id));
         } else {
-            await db.insert(plaudConnections).values({
-                userId: session.user.id,
-                bearerToken: encryptedToken,
-                apiBase,
-            });
+            await db
+                .insert(plaudConnections)
+                .values({ userId: session.user.id, ...connectionValues });
         }
 
         for (const device of deviceList.data_devices) {

@@ -46,9 +46,14 @@ export function SyncSection() {
     const [syncNotifications, setSyncNotifications] = useState(true);
     const [showReconnect, setShowReconnect] = useState(false);
     const [bearerToken, setBearerToken] = useState("");
+    const [refreshToken, setRefreshToken] = useState("");
     const [server, setServer] = useState<PlaudServerKey>("apac");
     const [isReconnecting, setIsReconnecting] = useState(false);
     const [connectedServer, setConnectedServer] = useState<string | null>(null);
+    const [connectionExpiresAt, setConnectionExpiresAt] = useState<
+        string | null
+    >(null);
+    const [hasRefreshToken, setHasRefreshToken] = useState(false);
 
     useEffect(() => {
         const fetchSettings = async () => {
@@ -73,6 +78,8 @@ export function SyncSection() {
                         setServer(conn.server);
                         setConnectedServer(conn.server);
                     }
+                    setConnectionExpiresAt(conn.expiresAt ?? null);
+                    setHasRefreshToken(!!conn.hasRefreshToken);
                 }
             } catch (error) {
                 console.error("Failed to fetch settings:", error);
@@ -94,7 +101,11 @@ export function SyncSection() {
             const response = await fetch("/api/plaud/connect", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ bearerToken: token, server }),
+                body: JSON.stringify({
+                    bearerToken: token,
+                    refreshToken: refreshToken.trim() || undefined,
+                    server,
+                }),
             });
             if (!response.ok) {
                 const data = await response.json();
@@ -102,6 +113,7 @@ export function SyncSection() {
             }
             toast.success("Plaud reconnected successfully");
             setBearerToken("");
+            setRefreshToken("");
             setShowReconnect(false);
             setConnectedServer(server);
         } catch (error) {
@@ -199,6 +211,15 @@ export function SyncSection() {
                             {connectedServer
                                 ? `Connected via ${PLAUD_SERVERS[connectedServer as PlaudServerKey]?.label ?? connectedServer}`
                                 : "Not connected"}
+                            {connectedServer && connectionExpiresAt
+                                ? ` · sign-in ${new Date(
+                                      connectionExpiresAt,
+                                  ).toLocaleDateString()} ${
+                                      hasRefreshToken
+                                          ? "(auto-renews)"
+                                          : "(renews after you paste pld_urt)"
+                                  }`
+                                : ""}
                         </p>
                     </div>
                     <Button
@@ -246,9 +267,25 @@ export function SyncSection() {
                             <Input
                                 id="reconnect-token"
                                 type="text"
-                                placeholder="Bearer ..."
+                                placeholder="Value of the pld_ut cookie from web.plaud.ai"
                                 value={bearerToken}
                                 onChange={(e) => setBearerToken(e.target.value)}
+                                disabled={isReconnecting}
+                                className="font-mono text-sm"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="reconnect-refresh-token">
+                                Refresh Token (optional)
+                            </Label>
+                            <Input
+                                id="reconnect-refresh-token"
+                                type="text"
+                                placeholder="Value of the pld_urt cookie; lets OpenPlaud renew the token automatically"
+                                value={refreshToken}
+                                onChange={(e) =>
+                                    setRefreshToken(e.target.value)
+                                }
                                 disabled={isReconnecting}
                                 className="font-mono text-sm"
                             />

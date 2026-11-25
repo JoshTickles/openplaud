@@ -25,6 +25,8 @@ export async function GET(request: Request) {
             .limit(1);
 
         let server: PlaudServerKey | undefined;
+        let expiresAt: string | null = null;
+        let hasRefreshToken = false;
         if (connection) {
             const entry = (
                 Object.entries(PLAUD_SERVERS) as [
@@ -33,11 +35,17 @@ export async function GET(request: Request) {
                 ][]
             ).find(([, s]) => s.apiBase === connection.apiBase);
             server = entry?.[0];
+            hasRefreshToken = !!connection.refreshToken;
+            const end =
+                connection.sessionExpiresAt ?? connection.accessExpiresAt;
+            expiresAt = end ? end.toISOString() : null;
         }
 
         return NextResponse.json({
             connected: !!connection,
             server,
+            hasRefreshToken,
+            expiresAt,
         });
     } catch (error) {
         console.error("Error checking Plaud connection:", error);

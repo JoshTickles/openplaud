@@ -26,6 +26,7 @@ type Step = "plaud" | "complete";
 export function OnboardingForm() {
     const [step, setStep] = useState<Step>("plaud");
     const [bearerToken, setBearerToken] = useState("");
+    const [refreshToken, setRefreshToken] = useState("");
     const [server, setServer] = useState<PlaudServerKey>(DEFAULT_SERVER_KEY);
     const [isLoading, setIsLoading] = useState(false);
     const router = useRouter();
@@ -41,10 +42,17 @@ export function OnboardingForm() {
             const response = await fetch("/api/plaud/connect", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ bearerToken, server }),
+                body: JSON.stringify({
+                    bearerToken: bearerToken.trim().replace(/^Bearer\s+/i, ""),
+                    refreshToken: refreshToken.trim() || undefined,
+                    server,
+                }),
             });
 
-            if (!response.ok) throw new Error("Failed to connect");
+            if (!response.ok) {
+                const data = await response.json().catch(() => null);
+                throw new Error(data?.error || "Failed to connect");
+            }
 
             toast.success("Plaud device connected");
             setStep("complete");
@@ -85,18 +93,22 @@ export function OnboardingForm() {
 
                     <Panel variant="inset" className="space-y-3 text-sm">
                         <p className="font-semibold">
-                            How to get your bearer token:
+                            How to get your Plaud tokens:
                         </p>
                         <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
-                            <li>Go to plaud.ai and log in</li>
-                            <li>Open DevTools (F12) → Network tab</li>
-                            <li>Refresh the page</li>
-                            <li>Find any request to the Plaud API server</li>
+                            <li>Go to web.plaud.ai and log in</li>
                             <li>
-                                Copy the Authorization header value (starts with
-                                &quot;Bearer &quot;)
+                                Open DevTools (F12) → Application (or Storage) →
+                                Cookies
                             </li>
                         </ol>
+                        <p className="text-muted-foreground">
+                            Do not copy the Authorization header from a network
+                            request: that is a workspace token which stops
+                            working within a day. Plaud web sign-ins last about
+                            30 days; until then OpenPlaud renews the token
+                            automatically.
+                        </p>
                     </Panel>
 
                     <div className="space-y-2">
@@ -133,9 +145,24 @@ export function OnboardingForm() {
                         <Input
                             id="bearerToken"
                             type="text"
-                            placeholder="Bearer ..."
+                            placeholder="Value of the pld_ut cookie"
                             value={bearerToken}
                             onChange={(e) => setBearerToken(e.target.value)}
+                            disabled={isLoading}
+                            className="font-mono text-sm"
+                        />
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label htmlFor="refreshToken">
+                            Refresh Token (optional)
+                        </Label>
+                        <Input
+                            id="refreshToken"
+                            type="text"
+                            placeholder="Value of the pld_urt cookie; enables auto-renewal"
+                            value={refreshToken}
+                            onChange={(e) => setRefreshToken(e.target.value)}
                             disabled={isLoading}
                             className="font-mono text-sm"
                         />

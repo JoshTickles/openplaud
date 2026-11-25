@@ -1,7 +1,6 @@
 import { gunzipSync } from "node:zlib";
 import type {
     PlaudApiError,
-    PlaudContentSegment,
     PlaudDeviceListResponse,
     PlaudFileDetailResponse,
     PlaudFileListResponse,
@@ -16,7 +15,6 @@ import type {
     PlaudV4RenameResponse,
 } from "@/types/plaud";
 import { parseTranscript } from "./content";
-import { DEFAULT_SERVER_KEY, PLAUD_SERVERS } from "./servers";
 import {
     applyPlaudV4Detail,
     isPlaudV4MigratedResponse,
@@ -37,8 +35,6 @@ export interface PlaudUpdateFilenameResponse {
 export const DEFAULT_PLAUD_API_BASE = PLAUD_SERVERS[DEFAULT_SERVER_KEY].apiBase;
 const MAX_RETRIES = 3;
 const INITIAL_RETRY_DELAY = 1000; // 1 second
-const USER_AGENT =
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
 const V4_PAGE_SIZE = 50;
 const V4_MAX_PAGES = 400;
 
@@ -106,15 +102,55 @@ export class PlaudClient {
         string,
         NonNullable<PlaudV4FileDetailResponse["data"]>
     >();
+    /**
+     * When set, a 401 triggers one refresh attempt (at most one in flight);
+     * the rotated tokens are persisted by the callback owner. A refresh that
+     * was just used for this request is not retried.
+     */
+    private readonly refreshUserToken?: () => Promise<string>;
+    private refreshInFlight?: Promise<string>;
+    private refreshedOn401 = false;
 
-    constructor(bearerToken: string, apiBase: string = DEFAULT_PLAUD_API_BASE) {
+    constructor(
+        bearerToken: string,
+        apiBase: string = DEFAULT_PLAUD_API_BASE,
+        options: { refreshUserToken?: () => Promise<string> } = {},
+    ) {
         this.bearerToken = bearerToken;
         this.apiBase = apiBase;
+        this.refreshUserToken = options.refreshUserToken;
     }
 
     /** True once the client has switched to the Plaud 4.0 file API. */
     get usingPlaudV4(): boolean {
         return this.v4Mode;
+    }
+
+    /**
+     * Run the injected refresh at most once at a time; a second caller joins
+     * the in-flight refresh. Throws if the refresh itself fails; the 401 from
+     * the original request then surfaces normally.
+     */
+    private async refreshTokenOnce(): Promise<string> {
+        const refresh = this.refreshUserToken;
+        if (!refresh) {
+            throw new Error("No refresh callback configured");
+        }
+        if (this.refreshInFlight) return this.refreshInFlight;
+        const attempt = (async () => {
+            const refreshed = await refresh();
+            this.bearerToken = refreshed;
+            this.refreshedOn401 = true;
+            return refreshed;
+        })();
+        this.refreshInFlight = attempt;
+        try {
+            return await attempt;
+        } finally {
+            if (this.refreshInFlight === attempt) {
+                this.refreshInFlight = undefined;
+            }
+        }
     }
 
     /**
@@ -124,17 +160,19 @@ export class PlaudClient {
         endpoint: string,
         options?: RequestInit,
         retryCount = 0,
+        bearer?: string,
     ): Promise<T> {
         const url = `${this.apiBase}${endpoint}`;
+        const token = bearer ?? this.bearerToken;
 
         try {
             const response = await fetch(url, {
                 ...options,
                 headers: {
                     ...options?.headers,
-                    Authorization: `Bearer ${this.bearerToken}`,
+                    Authorization: `Bearer ${token}`,
                     "Content-Type": "application/json",
-                    "User-Agent": USER_AGENT,
+                    "User-Agent": PLAUD_USER_AGENT,
                     Accept: "application/json, text/plain, */*",
                 },
             });
@@ -148,6 +186,22 @@ export class PlaudClient {
                 return this.request<T>(endpoint, options, retryCount + 1);
             }
 
+            // A rejected user token usually means the 24-hour web sign-in
+            // lapsed: refresh once and replay, then let the new token stand.
+            if (
+                response.status === 401 &&
+                this.refreshUserToken &&
+                !this.refreshedOn401
+            ) {
+                const refreshed = await this.refreshTokenOnce();
+                return this.request<T>(
+                    endpoint,
+                    options,
+                    retryCount,
+                    refreshed,
+                );
+            }
+
             if (!response.ok) {
                 const error = (await response.json()) as PlaudApiError;
                 const errorMessage = `Plaud API error (${response.status}): ${error.msg || response.statusText}`;
@@ -159,7 +213,12 @@ export class PlaudClient {
                 ) {
                     const delay = INITIAL_RETRY_DELAY * 2 ** retryCount;
                     await sleep(delay);
-                    return this.request<T>(endpoint, options, retryCount + 1);
+                    return this.request<T>(
+                        endpoint,
+                        options,
+                        retryCount + 1,
+                        token,
+                    );
                 }
 
                 throw new Error(errorMessage);
@@ -174,7 +233,12 @@ export class PlaudClient {
             ) {
                 const delay = INITIAL_RETRY_DELAY * 2 ** retryCount;
                 await sleep(delay);
-                return this.request<T>(endpoint, options, retryCount + 1);
+                return this.request<T>(
+                    endpoint,
+                    options,
+                    retryCount + 1,
+                    token,
+                );
             }
 
             if (error instanceof Error) {
@@ -675,12 +739,91 @@ export class PlaudClient {
     }
 }
 
+/** Refresh the user token when it expires within this window. */
+export const PLAUD_ACCESS_REFRESH_WINDOW_MS = 60 * 60 * 1000;
+
+/** Stored connection fields needed to build an authenticated client. */
+export interface PlaudConnectionCredentials {
+    id: string;
+    userId: string;
+    /** Encrypted access token (kept for legacy callers passing a bare token) */
+    bearerToken: string;
+    /** Encrypted refresh token, when the connection has one */
+    refreshToken?: string | null;
+    accessExpiresAt?: Date | null;
+    sessionExpiresAt?: Date | null;
+    apiBase: string;
+}
+
+/** True when a token expiring at `accessExpiresAt` should be refreshed now. */
+export function shouldRefreshPlaudAccessToken(
+    accessExpiresAt: Date | null | undefined,
+    now: Date = new Date(),
+): boolean {
+    if (!accessExpiresAt) return false;
+    return (
+        accessExpiresAt.getTime() - now.getTime() <=
+        PLAUD_ACCESS_REFRESH_WINDOW_MS
+    );
+}
+
 /**
- * Create Plaud client from encrypted bearer token
+ * Persist a refreshed token pair back onto the connection row, encrypted.
+ * Only overwrites when the row still holds the refresh token this client
+ * read (compare-and-set against a concurrent reconnect).
+ */
+async function persistRefreshedPlaudTokens(input: {
+    userId: string;
+    connectionId: string;
+    storedRefreshToken: string;
+    accessToken: string;
+    refreshToken: string;
+    accessExpiresAt: Date | null;
+    sessionExpiresAt: Date | null;
+}): Promise<void> {
+    const [{ encrypt }, { db }, schemaMod] = await Promise.all([
+        import("../encryption"),
+        import("@/db"),
+        import("@/db/schema"),
+    ]);
+    const { plaudConnections } = schemaMod;
+    const { eq, and } = await import("drizzle-orm");
+    const updated = await db
+        .update(plaudConnections)
+        .set({
+            bearerToken: encrypt(input.accessToken),
+            refreshToken: encrypt(input.refreshToken),
+            accessExpiresAt: input.accessExpiresAt,
+            sessionExpiresAt: input.sessionExpiresAt,
+            updatedAt: new Date(),
+        })
+        .where(
+            and(
+                eq(plaudConnections.id, input.connectionId),
+                eq(plaudConnections.userId, input.userId),
+                eq(plaudConnections.refreshToken, input.storedRefreshToken),
+            ),
+        )
+        .returning({ id: plaudConnections.id });
+    if (updated.length === 0) {
+        console.info(
+            "[plaud] refreshed tokens not stored: the connection changed since it was read",
+        );
+    }
+}
+
+/**
+ * Create a Plaud client from a stored connection row.
+ *
+ * When the connection holds a refresh token: refresh the access token up
+ * front if it expires within an hour, and again on a 401 from any request.
+ * Plaud rotates the refresh token on every use; rotated pairs are persisted
+ * (encrypted, compare-and-set). A transient refresh failure keeps working on
+ * the current token until it expires; a rejected refresh with an expired
+ * access token fails the call so the UI can ask for a reconnect.
  */
 export async function createPlaudClient(
-    encryptedToken: string,
-    apiBase: string = DEFAULT_PLAUD_API_BASE,
+    connection: PlaudConnectionCredentials,
 ): Promise<PlaudClient> {
     const { decrypt } = await import("../encryption");
     const bearerToken = decrypt(encryptedToken);
