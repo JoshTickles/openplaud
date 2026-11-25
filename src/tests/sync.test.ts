@@ -101,6 +101,9 @@ describe("Sync", () => {
                 getRecordings: vi.fn().mockResolvedValue({
                     data_file_list: mockPlaudRecordings,
                 }),
+                hydrateRecording: vi
+                    .fn()
+                    .mockImplementation(async (r: unknown) => r),
                 downloadRecording: vi
                     .fn()
                     .mockResolvedValue(Buffer.from("audio")),
@@ -187,6 +190,9 @@ describe("Sync", () => {
                 getRecordings: vi.fn().mockResolvedValue({
                     data_file_list: mockPlaudRecordings,
                 }),
+                hydrateRecording: vi
+                    .fn()
+                    .mockImplementation(async (r: unknown) => r),
                 downloadRecording: vi
                     .fn()
                     .mockResolvedValue(Buffer.from("audio")),

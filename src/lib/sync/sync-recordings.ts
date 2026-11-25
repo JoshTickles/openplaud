@@ -1,6 +1,7 @@
 import { and, eq, inArray, notInArray } from "drizzle-orm";
 import { db } from "@/db";
 import { plaudConnections, recordings, userSettings, users } from "@/db/schema";
+import { detectAudioFormat } from "@/lib/audio/detect-format";
 import { env } from "@/lib/env";
 import { sendNewRecordingBarkNotification } from "@/lib/notifications/bark";
 import { sendNewRecordingEmail } from "@/lib/notifications/email";
@@ -70,16 +71,22 @@ async function processRecording(
             return { status: "skipped" };
         }
 
+        // v4 listings omit device serial, size and timezone; fill them from
+        // the file detail before downloading. No-op for legacy listings.
+        plaudRecording = await plaudClient.hydrateRecording(plaudRecording);
+
         // Download the audio file
         const audioBuffer = await plaudClient.downloadRecording(
             plaudRecording.id,
             false,
         );
 
-        const fileExtension = "mp3";
-        const storageKey = `${context.userId}/${plaudRecording.id}.${fileExtension}`;
-        const contentType = "audio/mpeg";
-        await storage.uploadFile(storageKey, audioBuffer, contentType);
+        // Plaud names files .mp3 regardless of the container (v4 commonly
+        // serves Ogg/Opus); store under the sniffed format so playback and
+        // providers accept the file.
+        const sniffed = detectAudioFormat(audioBuffer);
+        const storageKey = `${context.userId}/${plaudRecording.id}${sniffed.extension}`;
+        await storage.uploadFile(storageKey, audioBuffer, sniffed.contentType);
 
         const recordingData = {
             userId: context.userId,
@@ -268,7 +275,9 @@ export async function syncRecordingsForUser(
             );
 
             const plaudRecordings = recordingsResponse.data_file_list;
-            console.log(`[Sync] Page ${page}: ${plaudRecordings.length} recordings from Plaud API`);
+            console.log(
+                `[Sync] Page ${page}: ${plaudRecordings.length} recordings from Plaud API`,
+            );
 
             if (plaudRecordings.length === 0) {
                 break;
@@ -356,7 +365,10 @@ export async function syncRecordingsForUser(
                         ),
                     );
             } catch (cleanupError) {
-                console.error("Failed to flag upstream-deleted recordings:", cleanupError);
+                console.error(
+                    "Failed to flag upstream-deleted recordings:",
+                    cleanupError,
+                );
             }
         }
 
